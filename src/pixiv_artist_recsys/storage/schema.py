@@ -24,6 +24,17 @@ SCHEMA_STATEMENTS = [
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS seed_user_following_artists (
+        seed_user_id INTEGER NOT NULL,
+        artist_user_id INTEGER NOT NULL,
+        first_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY(seed_user_id, artist_user_id),
+        FOREIGN KEY(seed_user_id) REFERENCES seed_users(user_id),
+        FOREIGN KEY(artist_user_id) REFERENCES artists(user_id)
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS artists (
         user_id INTEGER PRIMARY KEY,
         name TEXT NOT NULL,

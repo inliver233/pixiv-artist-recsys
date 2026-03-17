@@ -122,3 +122,23 @@ class RecommendationRepository:
             last_refreshed_at=str(row['last_refreshed_at']),
             last_error=str(row['last_error']),
         )
+
+    def upsert_following_edge(self, *, seed_user_id: int, artist_user_id: int) -> None:
+        with self.database.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO seed_user_following_artists (seed_user_id, artist_user_id)
+                VALUES (?, ?)
+                ON CONFLICT(seed_user_id, artist_user_id) DO UPDATE SET
+                    last_seen_at=CURRENT_TIMESTAMP
+                """,
+                (seed_user_id, artist_user_id),
+            )
+
+    def list_following_artist_ids(self, *, seed_user_id: int) -> list[int]:
+        with self.database.connect() as conn:
+            rows = conn.execute(
+                "SELECT artist_user_id FROM seed_user_following_artists WHERE seed_user_id = ? ORDER BY artist_user_id",
+                (seed_user_id,),
+            ).fetchall()
+        return [int(row['artist_user_id']) for row in rows]
