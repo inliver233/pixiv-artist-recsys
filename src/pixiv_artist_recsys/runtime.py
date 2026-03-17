@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Mapping
+from typing import Any, Mapping
 
 from .auth import AccessTokenCache, PixivOAuthService, PixivTokenCoordinator
 from .auth.models import PixivTokenRecord
@@ -30,9 +30,10 @@ class AppRuntime:
         base_transport: HttpTransport | None = None,
         now_fn=None,
     ) -> 'AppRuntime':
-        settings = settings or load_settings()
+        env_mapping = dict(env or os.environ)
+        settings = settings or load_settings(env=env_mapping)
         transport, proxy_pool = build_http_transport_from_env(
-            dict(env or os.environ),
+            env_mapping,
             base_transport=base_transport or UrllibHttpTransport(),
             now_fn=now_fn,
         )
@@ -77,6 +78,23 @@ class AppRuntime:
             'enabled': self.proxy_pool is not None,
             'proxies': [asdict(snapshot) for snapshot in self.proxy_pool.snapshot()] if self.proxy_pool is not None else [],
             'allow_direct_fallback': bool(self.proxy_pool.policy.allow_direct_fallback) if self.proxy_pool is not None else True,
+        }
+
+    def settings_payload(self) -> dict[str, Any]:
+        return {
+            'mode': self.settings.mode.value,
+            'paths': {
+                'repo_root': str(self.settings.paths.repo_root),
+                'data_dir': str(self.settings.paths.data_dir),
+                'runtime_dir': str(self.settings.paths.runtime_dir),
+                'logs_dir': str(self.settings.paths.logs_dir),
+                'cache_dir': str(self.settings.paths.cache_dir),
+            },
+            'storage': {
+                'sqlite_path': str(self.settings.storage.sqlite_path),
+            },
+            'api': asdict(self.settings.api),
+            'recommendation': asdict(self.settings.recommendation),
         }
 
     def build_pixiv_client(
