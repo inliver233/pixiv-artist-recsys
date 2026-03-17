@@ -78,3 +78,10 @@
 - `API-001`: local JSON API router/server
 - `APP-008`: serve-api + settings defaults
 - `TEST-009`: batch regression
+
+## Batch 10
+- `DOCS-010`: 第十批 application/live-api 计划资产
+- `CORE-007`: application facade
+- `API-002`: live API endpoints
+- `APP-009`: CLI facade reuse
+- `TEST-010`: batch regression

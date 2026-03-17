@@ -22,16 +22,18 @@
 - proxy/failover：proxy pool、cooldown、direct fallback、CLI proxy snapshot
 - feedback/audit：feedback events、negative profile、run audit、CLI feedback/audit 查询
 - runtime/diversity/export：AppRuntime、diversity-aware rank、run list/export
+- api/config/runtime enhancement：typed settings、本地 JSON API、serve-api
 
 ## Current implementation focus
-当前推进到第 9 批：
-- 补齐强类型配置与 settings 默认值
-- 增加本地 JSON API router/server
-- 进一步为后续服务化集成打底
+当前推进到第 10 批：
+- 引入统一 application facade
+- 扩展 live hydrate/profile/full-recommend API
+- 继续收敛 CLI 与 API 的共享编排逻辑
 
 ## Module map
 - `src/pixiv_artist_recsys/config.py`: 强类型 settings / env helpers
 - `src/pixiv_artist_recsys/runtime.py`: unified runtime / wiring container
+- `src/pixiv_artist_recsys/application/`: shared orchestration facade for CLI/API
 - `src/pixiv_artist_recsys/storage/`: SQLite schema / repository / audit data
 - `src/pixiv_artist_recsys/auth/`: OAuth refresh / token cache / coordinator / transport
 - `src/pixiv_artist_recsys/pixiv/`: Pixiv App API client / DTO
@@ -55,4 +57,5 @@
 - Phase 7: proxy/failover ✅
 - Phase 8: feedback loop + recommendation audit ✅
 - Phase 9: runtime/diversity/export ✅
-- Phase 10: API/config/runtime enhancement（当前进行中）
+- Phase 10: API/config/runtime enhancement ✅
+- Phase 11: application/live API consolidation（当前进行中）
