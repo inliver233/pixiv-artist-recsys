@@ -47,7 +47,7 @@ complexity: complex
 
 ## Acceptance Checklist
 - [x] 已生成第六批 plan 与 Issue CSV
-- [ ] 已实现 proxy pool / failover transport
+- [x] 已实现 proxy pool / failover transport
 - [ ] 已实现 CLI proxy state / build chain integration
 - [ ] 全量 unittest 与 compileall 通过
 

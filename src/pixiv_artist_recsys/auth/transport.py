@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from typing import Mapping, Protocol
-from urllib import parse, request
+from urllib import error, parse, request
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +57,10 @@ class UrllibHttpTransport:
             req.add_header(key, value)
 
         opener = request.build_opener(request.ProxyHandler({"http": proxy, "https": proxy}) if proxy else request.ProxyHandler({}))
-        with opener.open(req, timeout=timeout_s) as resp:
-            text = resp.read().decode('utf-8')
-            return HttpResponse(status_code=int(resp.getcode()), headers=dict(resp.headers.items()), text=text)
+        try:
+            with opener.open(req, timeout=timeout_s) as resp:
+                text = resp.read().decode('utf-8')
+                return HttpResponse(status_code=int(resp.getcode()), headers=dict(resp.headers.items()), text=text)
+        except error.HTTPError as exc:
+            text = exc.read().decode('utf-8', errors='replace') if exc.fp is not None else ''
+            return HttpResponse(status_code=int(exc.code), headers=dict(exc.headers.items()), text=text)
