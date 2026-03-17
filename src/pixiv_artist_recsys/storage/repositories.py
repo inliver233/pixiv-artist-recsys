@@ -283,6 +283,54 @@ class RecommendationRepository:
             ).fetchall()
         return [(str(r['tag_a']), str(r['tag_b']), float(r['weight'])) for r in rows]
 
+    def replace_user_negative_profile(self, *, seed_user_id: int, weights: list[tuple[str, float]]) -> None:
+        with self.database.connect() as conn:
+            conn.execute("DELETE FROM user_negative_profile WHERE seed_user_id = ?", (seed_user_id,))
+            conn.executemany(
+                "INSERT INTO user_negative_profile (seed_user_id, tag, weight) VALUES (?, ?, ?)",
+                [(seed_user_id, tag, float(weight)) for tag, weight in weights],
+            )
+
+    def fetch_user_negative_profile(self, *, seed_user_id: int) -> list[tuple[str, float]]:
+        with self.database.connect() as conn:
+            rows = conn.execute(
+                "SELECT tag, weight FROM user_negative_profile WHERE seed_user_id = ? ORDER BY weight DESC, tag ASC",
+                (seed_user_id,),
+            ).fetchall()
+        return [(str(r['tag']), float(r['weight'])) for r in rows]
+
+    def record_feedback_event(self, *, seed_user_id: int, artist_user_id: int, action: str, source_run_id: str = '', note: str = '') -> None:
+        with self.database.connect() as conn:
+            conn.execute(
+                "INSERT INTO feedback_events (seed_user_id, artist_user_id, action, source_run_id, note) VALUES (?, ?, ?, ?, ?)",
+                (seed_user_id, artist_user_id, action, source_run_id, note),
+            )
+
+    def fetch_feedback_events(self, *, seed_user_id: int, action: str | None = None) -> list[tuple[int, int, str, str, str, str]]:
+        with self.database.connect() as conn:
+            if action:
+                rows = conn.execute(
+                    "SELECT artist_user_id, seed_user_id, action, source_run_id, note, created_at FROM feedback_events WHERE seed_user_id = ? AND action = ? ORDER BY event_id ASC",
+                    (seed_user_id, action),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT artist_user_id, seed_user_id, action, source_run_id, note, created_at FROM feedback_events WHERE seed_user_id = ? ORDER BY event_id ASC",
+                    (seed_user_id,),
+                ).fetchall()
+        return [(int(r['artist_user_id']), int(r['seed_user_id']), str(r['action']), str(r['source_run_id']), str(r['note']), str(r['created_at'])) for r in rows]
+
+    def list_feedback_artist_ids(self, *, seed_user_id: int, actions: tuple[str, ...]) -> list[int]:
+        if not actions:
+            return []
+        placeholders = ','.join(['?'] * len(actions))
+        with self.database.connect() as conn:
+            rows = conn.execute(
+                f"SELECT DISTINCT artist_user_id FROM feedback_events WHERE seed_user_id = ? AND action IN ({placeholders}) ORDER BY artist_user_id ASC",
+                (seed_user_id, *actions),
+            ).fetchall()
+        return [int(r['artist_user_id']) for r in rows]
+
     def fetch_followed_tags(self, *, seed_user_id: int) -> list[tuple[int, list[str]]]:
         artists = self.list_following_artist_ids(seed_user_id=seed_user_id)
         result: list[tuple[int, list[str]]] = []

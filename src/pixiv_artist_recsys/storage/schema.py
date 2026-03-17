@@ -84,6 +84,25 @@ SCHEMA_STATEMENTS = [
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS user_negative_profile (
+        seed_user_id INTEGER NOT NULL,
+        tag TEXT NOT NULL,
+        weight REAL NOT NULL,
+        PRIMARY KEY(seed_user_id, tag)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS feedback_events (
+        event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        seed_user_id INTEGER NOT NULL,
+        artist_user_id INTEGER NOT NULL,
+        action TEXT NOT NULL,
+        source_run_id TEXT NOT NULL DEFAULT '',
+        note TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS artist_candidates (
         seed_user_id INTEGER NOT NULL,
         candidate_user_id INTEGER NOT NULL,

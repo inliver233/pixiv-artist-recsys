@@ -51,7 +51,7 @@ complexity: complex
 
 ## Acceptance Checklist
 - [x] 已生成第七批 plan 与 Issue CSV
-- [ ] 已实现 feedback events / negative profile
+- [x] 已实现 feedback events / negative profile
 - [ ] 已实现 run audit persistence
 - [ ] 已实现 negative feedback suppression 与 CLI 查询
 - [ ] 全量 unittest 与 compileall 通过
