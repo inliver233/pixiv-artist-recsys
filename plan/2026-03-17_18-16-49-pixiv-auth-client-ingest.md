@@ -49,11 +49,11 @@ complexity: complex
 - none：当前批次主要为本地 Python 实现与 fake transport 测试
 
 ## Acceptance Checklist
-- [ ] 已生成第二批 plan 与 Issue CSV
-- [ ] 已实现可测试的 OAuth refresh service 与 token cache
-- [ ] 已实现 Pixiv App API client 关键端点
-- [ ] 已实现 following ingest 服务与本地存储写入
-- [ ] 全量 unittest 与 compileall 通过
+- [x] 已生成第二批 plan 与 Issue CSV
+- [x] 已实现可测试的 OAuth refresh service 与 token cache
+- [x] 已实现 Pixiv App API client 关键端点
+- [x] 已实现 following ingest 服务与本地存储写入
+- [x] 全量 unittest 与 compileall 通过
 
 ## Risks / Blockers
 - Pixiv 移动端请求头未来可能变化
