@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+from dataclasses import asdict
 
 from .auth import AccessTokenCache, PixivOAuthService, PixivTokenCoordinator
 from .auth.models import PixivTokenRecord
@@ -11,6 +12,7 @@ from .ingest import ArtistIllustHydrationService
 from .pipeline import LiveRecommendationPipeline, LiveRecommendationRequest, RecommendationPipeline, RecommendationRequest
 from .pixiv import CoordinatorBackedAccessTokenProvider, PixivAppApiClient, StaticAccessTokenProvider
 from .profile import UserTasteProfileService
+from .proxy import build_http_transport_from_env
 from .rank import HeuristicArtistRankService
 from .services import DryRunCandidateRetriever, DryRunIngestService, DryRunProfileService, DryRunRankService
 from .storage import RecommendationRepository, SQLiteDatabase
@@ -41,6 +43,10 @@ def _resolve_refresh_token_ref(refresh_token: str | None = None, access_token: s
     return 'masked:'
 
 
+def _build_network_stack():
+    return build_http_transport_from_env()
+
+
 def _build_pixiv_client(
     *,
     repository: RecommendationRepository,
@@ -49,10 +55,11 @@ def _build_pixiv_client(
     refresh_token: str | None = None,
     access_token: str | None = None,
 ) -> PixivAppApiClient:
+    transport, _ = _build_network_stack()
     resolved_access_token = _resolve_access_token(access_token)
     if resolved_access_token:
         provider = StaticAccessTokenProvider(access_token=resolved_access_token)
-        return PixivAppApiClient(access_token_provider=provider)
+        return PixivAppApiClient(access_token_provider=provider, transport=transport)
 
     resolved_refresh_token = _resolve_refresh_token(refresh_token)
     if not resolved_refresh_token:
@@ -61,13 +68,13 @@ def _build_pixiv_client(
     provider = CoordinatorBackedAccessTokenProvider(
         coordinator=PixivTokenCoordinator(
             cache=AccessTokenCache(),
-            oauth_service=PixivOAuthService(),
+            oauth_service=PixivOAuthService(transport=transport),
             repository=repository,
         ),
         token_key=(token_key or f"seed-user:{seed_user_id}"),
         refresh_token=resolved_refresh_token,
     )
-    return PixivAppApiClient(access_token_provider=provider)
+    return PixivAppApiClient(access_token_provider=provider, transport=transport)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -76,6 +83,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("init-db", help="Initialize local sqlite database")
     sub.add_parser("show-config", help="Print resolved local settings")
+    sub.add_parser("show-proxy-state", help="Print proxy pool configuration and health snapshot")
 
     dry = sub.add_parser("dry-run-recommend", help="Run placeholder recommendation pipeline")
     dry.add_argument("--seed-user-id", type=int, default=1)
@@ -137,6 +145,17 @@ def cmd_show_config() -> int:
         "runtime_dir": str(settings.paths.runtime_dir),
         "db_path": str(settings.storage.sqlite_path),
         "max_results": settings.recommendation.max_results,
+    }
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_show_proxy_state() -> int:
+    _, proxy_pool = _build_network_stack()
+    payload = {
+        "enabled": proxy_pool is not None,
+        "proxies": [asdict(snapshot) for snapshot in proxy_pool.snapshot()] if proxy_pool is not None else [],
+        "allow_direct_fallback": bool(proxy_pool.policy.allow_direct_fallback) if proxy_pool is not None else True,
     }
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0
@@ -344,6 +363,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_init_db()
         if args.command == "show-config":
             return cmd_show_config()
+        if args.command == "show-proxy-state":
+            return cmd_show_proxy_state()
         if args.command == "dry-run-recommend":
             return cmd_dry_run_recommend(args.seed_user_id, args.refresh_token_ref, args.max_results)
         if args.command == "hydrate-followed-illusts":

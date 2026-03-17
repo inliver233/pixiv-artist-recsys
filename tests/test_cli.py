@@ -147,6 +147,20 @@ class CLITests(unittest.TestCase):
             payload = json.loads(result.stdout)
             self.assertIn("db_path", payload)
 
+    def test_show_proxy_state_outputs_proxy_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env = self._env_for_tmpdir(tmpdir)
+            env['PIXIV_ARTIST_RECSYS_PROXY_URLS'] = 'http://proxy-a:8080,http://proxy-b:8080'
+            stdout = io.StringIO()
+            with patch.dict(os.environ, env, clear=False):
+                with redirect_stdout(stdout):
+                    exit_code = cli.main(['show-proxy-state'])
+            payload = json.loads(stdout.getvalue())
+            self.assertEqual(exit_code, 0)
+            self.assertTrue(payload['enabled'])
+            self.assertEqual(len(payload['proxies']), 2)
+            self.assertTrue(payload['allow_direct_fallback'])
+
     def test_dry_run_recommend_outputs_placeholder_artist(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             result = self._run_cli("dry-run-recommend", "--seed-user-id", "11", tmpdir=tmpdir)
