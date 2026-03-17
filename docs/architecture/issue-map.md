@@ -71,3 +71,10 @@
 - `RANK-004`: diversity-aware ranking
 - `APP-007`: run list/export CLI + runtime 接入
 - `TEST-008`: batch regression
+
+## Batch 9
+- `DOCS-009`: 第九批 api/config/runtime 计划资产
+- `CORE-006`: typed settings
+- `API-001`: local JSON API router/server
+- `APP-008`: serve-api + settings defaults
+- `TEST-009`: batch regression
