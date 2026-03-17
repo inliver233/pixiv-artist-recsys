@@ -85,3 +85,9 @@
 - `API-002`: live API endpoints
 - `APP-009`: CLI facade reuse
 - `TEST-010`: batch regression
+
+## Batch 11
+- `DOCS-011`: 第十一批 job-runner/manifest 计划资产
+- `CORE-008`: jobs runner + manifest parser
+- `APP-010`: run-seed-job / run-manifest CLI
+- `TEST-011`: batch regression

@@ -23,17 +23,19 @@
 - feedback/audit：feedback events、negative profile、run audit、CLI feedback/audit 查询
 - runtime/diversity/export：AppRuntime、diversity-aware rank、run list/export
 - api/config/runtime enhancement：typed settings、本地 JSON API、serve-api
+- application/live-api consolidation：ApplicationFacade、live API 端点、CLI/API 复用
 
 ## Current implementation focus
-当前推进到第 10 批：
-- 引入统一 application facade
-- 扩展 live hydrate/profile/full-recommend API
-- 继续收敛 CLI 与 API 的共享编排逻辑
+当前推进到第 11 批：
+- 引入本地 job runner 与 manifest 批处理
+- 让推荐任务可批量执行并落盘快照
+- 继续增强稳定运行与运维体验
 
 ## Module map
 - `src/pixiv_artist_recsys/config.py`: 强类型 settings / env helpers
 - `src/pixiv_artist_recsys/runtime.py`: unified runtime / wiring container
 - `src/pixiv_artist_recsys/application/`: shared orchestration facade for CLI/API
+- `src/pixiv_artist_recsys/jobs/`: local batch job runner / manifest parser / snapshot export
 - `src/pixiv_artist_recsys/storage/`: SQLite schema / repository / audit data
 - `src/pixiv_artist_recsys/auth/`: OAuth refresh / token cache / coordinator / transport
 - `src/pixiv_artist_recsys/pixiv/`: Pixiv App API client / DTO
@@ -58,4 +60,5 @@
 - Phase 8: feedback loop + recommendation audit ✅
 - Phase 9: runtime/diversity/export ✅
 - Phase 10: API/config/runtime enhancement ✅
-- Phase 11: application/live API consolidation（当前进行中）
+- Phase 11: application/live API consolidation ✅
+- Phase 12: job runner / manifest batch execution（当前进行中）
