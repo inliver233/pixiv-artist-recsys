@@ -101,6 +101,10 @@ class LivePipelineTests(unittest.TestCase):
             self.assertEqual([item.artist.user_id for item in result.run.items], [2001])
             self.assertEqual(repo.count_rows('recommendation_runs'), 1)
             self.assertEqual(repo.count_rows('recommendation_items'), len(result.run.items))
+            audit = repo.fetch_run_audit(run_id=result.run.run_id)
+            self.assertIsNotNone(audit)
+            self.assertEqual(audit['candidate']['candidate_count'], 2)
+            self.assertEqual(audit['ranked']['artist_user_ids'], [2001])
             self.assertGreaterEqual(repo.count_rows('illusts'), 4)
 
 

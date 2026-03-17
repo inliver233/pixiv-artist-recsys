@@ -101,6 +101,43 @@ class LiveRecommendationPipeline:
         )
         if request.persist_run:
             self.repository.record_run(run)
+            self.repository.upsert_run_audit(
+                run_id=run.run_id,
+                seed_user_id=request.seed_user_id,
+                summary={
+                    'mode': request.mode,
+                    'filters': {
+                        'allow_ai': request.allow_ai,
+                        'allow_r18': request.allow_r18,
+                        'min_total_bookmarks': request.min_total_bookmarks,
+                        'min_score': request.min_score,
+                    },
+                    'following': {
+                        'synced_count': following_result.synced_count,
+                        'pages_fetched': following_result.pages_fetched,
+                    },
+                    'followed_hydration': {
+                        'artists_processed': followed_hydration_result.artists_processed,
+                        'illusts_upserted': followed_hydration_result.illusts_upserted,
+                    },
+                    'profile': {
+                        'artist_count': profile_summary.artist_count,
+                        'top_tags': [tag for tag, _ in profile_summary.top_tags[:10]],
+                    },
+                    'candidate': {
+                        'candidate_count': candidate_result.candidate_count,
+                        'evidence_count': candidate_result.evidence_count,
+                    },
+                    'candidate_hydration': {
+                        'artists_processed': candidate_hydration_result.artists_processed,
+                        'illusts_upserted': candidate_hydration_result.illusts_upserted,
+                    },
+                    'ranked': {
+                        'item_count': len(ranked_result.items),
+                        'artist_user_ids': [item.artist.user_id for item in ranked_result.items],
+                    },
+                },
+            )
         return LiveRecommendationResult(
             run=run,
             following_result=following_result,

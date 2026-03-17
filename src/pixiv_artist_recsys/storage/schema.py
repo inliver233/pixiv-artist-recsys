@@ -133,4 +133,13 @@ SCHEMA_STATEMENTS = [
         FOREIGN KEY(run_id) REFERENCES recommendation_runs(run_id)
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS recommendation_run_audit (
+        run_id TEXT PRIMARY KEY,
+        seed_user_id INTEGER NOT NULL,
+        summary_json TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(run_id) REFERENCES recommendation_runs(run_id)
+    )
+    """,
 ]

@@ -82,6 +82,29 @@ class RecommendationRepository:
                     ),
                 )
 
+    def upsert_run_audit(self, *, run_id: str, seed_user_id: int, summary: dict) -> None:
+        with self.database.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO recommendation_run_audit (run_id, seed_user_id, summary_json)
+                VALUES (?, ?, ?)
+                ON CONFLICT(run_id) DO UPDATE SET
+                    seed_user_id=excluded.seed_user_id,
+                    summary_json=excluded.summary_json
+                """,
+                (run_id, seed_user_id, json.dumps(summary, ensure_ascii=False)),
+            )
+
+    def fetch_run_audit(self, *, run_id: str) -> dict | None:
+        with self.database.connect() as conn:
+            row = conn.execute(
+                "SELECT summary_json FROM recommendation_run_audit WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return json.loads(str(row['summary_json']) or '{}')
+
     def count_rows(self, table_name: str) -> int:
         with self.database.connect() as conn:
             row = conn.execute(f"SELECT COUNT(*) AS c FROM {table_name}").fetchone()
