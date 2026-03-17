@@ -28,6 +28,7 @@ class LiveRecommendationRequest:
     allow_r18: bool = False
     min_total_bookmarks: int = 30
     min_score: float = 0.5
+    diversity_primary_tag_limit: int = 2
     persist_run: bool = True
     mode: str = 'live-heuristic'
 
@@ -91,6 +92,7 @@ class LiveRecommendationPipeline:
             allow_r18=request.allow_r18,
             min_total_bookmarks=request.min_total_bookmarks,
             min_score=request.min_score,
+            diversity_primary_tag_limit=request.diversity_primary_tag_limit,
         )
 
         run = RecommendationRun(
@@ -111,6 +113,7 @@ class LiveRecommendationPipeline:
                         'allow_r18': request.allow_r18,
                         'min_total_bookmarks': request.min_total_bookmarks,
                         'min_score': request.min_score,
+                        'diversity_primary_tag_limit': request.diversity_primary_tag_limit,
                     },
                     'following': {
                         'synced_count': following_result.synced_count,
