@@ -67,6 +67,23 @@ SCHEMA_STATEMENTS = [
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS user_taste_profile (
+        seed_user_id INTEGER NOT NULL,
+        tag TEXT NOT NULL,
+        weight REAL NOT NULL,
+        PRIMARY KEY(seed_user_id, tag)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS user_tag_pairs (
+        seed_user_id INTEGER NOT NULL,
+        tag_a TEXT NOT NULL,
+        tag_b TEXT NOT NULL,
+        weight REAL NOT NULL,
+        PRIMARY KEY(seed_user_id, tag_a, tag_b)
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS artist_candidates (
         seed_user_id INTEGER NOT NULL,
         candidate_user_id INTEGER NOT NULL,

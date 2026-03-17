@@ -224,3 +224,42 @@ class RecommendationRepository:
                 (artist_user_id,),
             ).fetchall()
         return [Illust(illust_id=int(r['illust_id']), user_id=int(r['user_id']), title=str(r['title']), create_date=str(r['create_date']), total_bookmarks=int(r['total_bookmarks']), total_view=int(r['total_view']), total_comments=int(r['total_comments']), ai_type=int(r['ai_type']), x_restrict=int(r['x_restrict'])) for r in rows]
+
+    def replace_user_taste_profile(self, *, seed_user_id: int, weights: list[tuple[str, float]]) -> None:
+        with self.database.connect() as conn:
+            conn.execute("DELETE FROM user_taste_profile WHERE seed_user_id = ?", (seed_user_id,))
+            conn.executemany(
+                "INSERT INTO user_taste_profile (seed_user_id, tag, weight) VALUES (?, ?, ?)",
+                [(seed_user_id, tag, float(weight)) for tag, weight in weights],
+            )
+
+    def replace_user_tag_pairs(self, *, seed_user_id: int, pairs: list[tuple[str, str, float]]) -> None:
+        with self.database.connect() as conn:
+            conn.execute("DELETE FROM user_tag_pairs WHERE seed_user_id = ?", (seed_user_id,))
+            conn.executemany(
+                "INSERT INTO user_tag_pairs (seed_user_id, tag_a, tag_b, weight) VALUES (?, ?, ?, ?)",
+                [(seed_user_id, a, b, float(weight)) for a, b, weight in pairs],
+            )
+
+    def fetch_user_taste_profile(self, *, seed_user_id: int) -> list[tuple[str, float]]:
+        with self.database.connect() as conn:
+            rows = conn.execute(
+                "SELECT tag, weight FROM user_taste_profile WHERE seed_user_id = ? ORDER BY weight DESC, tag ASC",
+                (seed_user_id,),
+            ).fetchall()
+        return [(str(r['tag']), float(r['weight'])) for r in rows]
+
+    def fetch_user_tag_pairs(self, *, seed_user_id: int) -> list[tuple[str, str, float]]:
+        with self.database.connect() as conn:
+            rows = conn.execute(
+                "SELECT tag_a, tag_b, weight FROM user_tag_pairs WHERE seed_user_id = ? ORDER BY weight DESC, tag_a ASC, tag_b ASC",
+                (seed_user_id,),
+            ).fetchall()
+        return [(str(r['tag_a']), str(r['tag_b']), float(r['weight'])) for r in rows]
+
+    def fetch_followed_tags(self, *, seed_user_id: int) -> list[tuple[int, list[str]]]:
+        artists = self.list_following_artist_ids(seed_user_id=seed_user_id)
+        result: list[tuple[int, list[str]]] = []
+        for artist_id in artists:
+            result.append((artist_id, self.fetch_artist_tags(artist_user_id=artist_id)))
+        return result
