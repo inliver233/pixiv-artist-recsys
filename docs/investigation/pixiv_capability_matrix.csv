@@ -1,0 +1,23 @@
+source_repo,module_or_file,capability,reuse_priority,target_area,adoption_strategy,notes
+Pixiv-XP-Pusher,pixiv_client.py,Pixiv App API access wrapper (bookmarks/search/following/ranking/related/detail),high,pixiv client,port selected methods into app/pixiv/client.py with local auth adapter,Good for endpoint surface and normalized illust parsing
+Pixiv-XP-Pusher,profiler.py,"Tag normalization, time decay, PMI tag pairs, negative profile",high,profile service,rebuild as artist-first taste profiler,Most valuable taste modeling reference
+Pixiv-XP-Pusher,fetcher.py,Multi-source retrieval and strategy allocation,high,candidate retrieval,map into candidate sources with artist-level aggregation,Use retrieval-source evidence tracking
+Pixiv-XP-Pusher,filter.py,"Match score, diversity control, exploration ratio",high,rank service,translate from illust ranking to artist ranking,Keep source boost and diversity concepts
+Pixiv-XP-Pusher,database.py,Profile/feedback/embedding table ideas,medium,storage schema,adapt into sqlite schema for user profiles/candidates/runs,Do not copy blindly; normalize around artist entity
+Random-image-api,backend/app/pixiv/oauth.py,Refresh token -> access token exchange,high,auth service,port into token service later,Current phase only defines interface
+Random-image-api,backend/app/pixiv/access_token_cache.py,Access token caching and refresh margin,high,auth service,future issue for token cache,Useful when real Pixiv client arrives
+Random-image-api,backend/app/pixiv/token_strategy.py,Token selection strategy,medium,auth/proxy,future multi-token support,Not needed for MVP single-token mode
+Random-image-api,backend/app/core/proxy_routing.py,Proxy routing by host/pool/binding,high,proxy service,future proxy policy layer,Core stability reference
+Random-image-api,backend/app/core/bindings_recompute.py,Stable token-proxy binding (rendezvous hashing),high,proxy service,future multi-proxy binding issue,Important for long-running stability
+Random-image-api,backend/app/core/failover.py,Error classification/backoff/failover,high,ops resilience,future ops implementation,Needed before production-like crawling
+Random-image-api,backend/app/jobs/handlers/hydrate_metadata.py,Illust metadata hydration with backoff,high,ingest service,port field extraction and retry semantics later,Best metadata hydration reference
+Random-image-api,backend/app/api/public/random.py,Quality score / freshness / anti-repeat,medium,rank service,adapt work quality signals to artist quality aggregation,Useful scoring primitives
+pixiv-downloader,common/PixivAppApi.py,Following/user illust/detail crawling,high,ingest service,future real Pixiv API client issue,Best follow-sync starting point
+pixiv-downloader,PixivMultiRunner.py,Multi-account scheduling and proxy assignment,medium,ops orchestration,future batch runner issue,Useful after MVP
+pixiv-downloader,PixivMultiWorker.py,Member illust indexing workflow,medium,ingest jobs,future offline sync issue,Relevant for incremental indexing
+pixiv-viewer,src/api/client/pixiv-api.js,Broad endpoint map: userRecommended/userRelated/illustRelated/etc,high,pixiv client + candidate retrieval,document and port endpoint coverage,Best endpoint knowledge base
+pixiv-viewer,src/api/user.js,Discovery users/artworks via web/ajax,medium,candidate retrieval,keep as optional fallback source,Only if app API path is insufficient
+x-algorithm,README.md,Two-stage retrieval/ranking architecture,high,system architecture,use as pipeline decomposition reference,"Conceptual, not code-copy"
+x-algorithm,phoenix/README.md,"Candidate isolation, ranking separation",medium,rank architecture,use to keep candidate independence in scoring,Useful for future ML stage
+workspace .codex,prompts/plan.md + skills/plan,Repo-local plan and issue CSV workflow,high,project workflow,copy and keep local workflow assets,Already adopted in repo bootstrap
+workspace AGENTS,AGENTS.md,Issue CSV execution contract,high,project workflow,adapt for local-only git,Applied with no-remote rule
