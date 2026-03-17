@@ -29,7 +29,7 @@
 
 ## Near-term roadmap
 - Phase 1: dry-run skeleton
-- Phase 2: token/proxy/pixiv client 真实实现
+- Phase 2: token / pixiv client / following ingest 真实实现（当前进行中）
 - Phase 3: followings ingest + artist profile
 - Phase 4: candidate retrieval + ranking
 - Phase 5: feedback loop + metrics

@@ -19,3 +19,12 @@
 6. `CAND-*`: related users / related works / search recall
 7. `RANK-*`: artist quality scoring / diversity / explanation
 8. `FEED-*`: feedback loop / recommendation audit trail
+
+
+## Batch 2
+- `DOCS-002`: 第二批 auth/client/ingest 计划与 issue 资产
+- `AUTH-001`: OAuth refresh service 与 token persistence
+- `AUTH-002`: access token cache
+- `PIXIV-001`: Pixiv App API client 与 DTO
+- `INGEST-001`: following sync service
+- `TEST-002`: batch regression
