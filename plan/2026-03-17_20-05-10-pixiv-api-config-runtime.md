@@ -48,11 +48,11 @@ complexity: complex
 - none：继续使用本地标准库实现与单测
 
 ## Acceptance Checklist
-- [ ] 已生成第九批 plan 与 Issue CSV
-- [ ] 已实现强类型配置与 env helpers
-- [ ] 已实现本地 JSON API router/server
-- [ ] 已实现 CLI serve-api 与 settings 默认值接入
-- [ ] 全量 unittest 与 compileall 通过
+- [x] 已生成第九批 plan 与 Issue CSV
+- [x] 已实现强类型配置与 env helpers
+- [x] 已实现本地 JSON API router/server
+- [x] 已实现 CLI serve-api 与 settings 默认值接入
+- [x] 全量 unittest 与 compileall 通过
 
 ## Risks / Blockers
 - 本地 JSON API 仍无认证，后续若开放网络需补安全控制。
