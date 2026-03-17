@@ -52,7 +52,7 @@ complexity: complex
 - [x] 已实现统一 runtime 装配层
 - [x] 已实现 diversity-aware ranking
 - [x] 已实现 run 列表/导出 CLI 与 runtime 接入
-- [ ] 全量 unittest 与 compileall 通过
+- [x] 全量 unittest 与 compileall 通过
 
 ## Risks / Blockers
 - diversity 后处理若设置过强，可能压低整体分数最优性。
