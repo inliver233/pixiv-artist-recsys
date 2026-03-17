@@ -33,10 +33,12 @@ class HeuristicArtistRankService:
         resolved_allow_r18 = seed_user.allow_r18 if allow_r18 is None and seed_user is not None else bool(allow_r18)
 
         followed_ids = set(self.repository.list_following_artist_ids(seed_user_id=seed_user_id))
+        rejected_ids = set(self.repository.list_feedback_artist_ids(seed_user_id=seed_user_id, actions=('dislike', 'block')))
         profile = dict(self.repository.fetch_user_taste_profile(seed_user_id=seed_user_id))
+        negative_profile = dict(self.repository.fetch_user_negative_profile(seed_user_id=seed_user_id))
         evidence_map: dict[int, list[tuple[str, str, float, str]]] = defaultdict(list)
         for candidate_user_id, source_type, source_key, weight, detail in self.repository.fetch_artist_candidates(seed_user_id=seed_user_id):
-            if candidate_user_id in followed_ids:
+            if candidate_user_id in followed_ids or candidate_user_id in rejected_ids:
                 continue
             evidence_map[candidate_user_id].append((source_type, source_key, weight, detail))
 
@@ -59,9 +61,12 @@ class HeuristicArtistRankService:
 
             tags = self.repository.fetch_tags_for_illust_ids(illust_ids=[illust.illust_id for illust in filtered_illusts])
             tag_score = sum(profile.get(self._normalize(tag), 0.0) for tag in tags)
+            negative_tag_score = sum(negative_profile.get(self._normalize(tag), 0.0) for tag in tags)
+            if negative_tag_score >= 0.5:
+                continue
             evidence_score = sum(weight for _, _, weight, _ in evidences)
             quality_score = self._quality_score(filtered_illusts)
-            final_score = 0.45 * tag_score + 0.35 * evidence_score + 0.20 * quality_score
+            final_score = 0.45 * tag_score + 0.35 * evidence_score + 0.20 * quality_score - 0.30 * negative_tag_score
             if final_score < min_score:
                 continue
             confidence = min(1.0, 0.25 + 0.15 * len(evidences) + 0.1 * min(3, len(filtered_illusts)))
@@ -70,6 +75,8 @@ class HeuristicArtistRankService:
             reasons = [f"evidence:{source_type}" for source_type, _, _, _ in evidences[:2]]
             if top_tags:
                 reasons.append(f"tags:{','.join(top_tags)}")
+            if negative_tag_score > 0:
+                reasons.append(f"negative_penalty:{round(negative_tag_score, 3)}")
             if min_total_bookmarks > 0:
                 reasons.append(f"quality:min_bookmarks>={min_total_bookmarks}")
             results.append(RecommendationItem(artist=artist, score=round(final_score, 6), confidence=round(confidence, 6), reasons=reasons, top_illust_ids=top_illust_ids))

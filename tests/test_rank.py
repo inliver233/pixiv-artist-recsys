@@ -75,6 +75,47 @@ class RankServiceTests(unittest.TestCase):
             self.assertEqual([item.artist.user_id for item in result.items], [2001])
             self.assertIn('quality:min_bookmarks>=30', result.items[0].reasons)
 
+    def test_rank_suppresses_blocked_artists_and_negative_tag_overlap(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = RecommendationRepository(SQLiteDatabase(Path(tmpdir) / 'rank-feedback.sqlite3'))
+            repo.initialize()
+            repo.upsert_seed_user(SeedUser(user_id=7, refresh_token_ref='masked:token'))
+            repo.upsert_artist(Artist(user_id=1001, name='artist-1', is_followed=True))
+            repo.upsert_following_edge(seed_user_id=7, artist_user_id=1001)
+            repo.replace_user_taste_profile(seed_user_id=7, weights=[('blue_hair', 1.0)])
+
+            repo.upsert_artist(Artist(user_id=2999, name='blocked-source'))
+            repo.upsert_illust(Illust(illust_id=9999, user_id=2999, title='blocked-source', total_bookmarks=80))
+            repo.replace_illust_tags(illust_id=9999, tags=['gore'])
+            repo.record_feedback_event(seed_user_id=7, artist_user_id=2999, action='block', source_run_id='run-1', note='block')
+            repo.replace_user_negative_profile(seed_user_id=7, weights=[('gore', 1.0)])
+
+            repo.upsert_artist(Artist(user_id=2001, name='good-candidate'))
+            repo.upsert_illust(Illust(illust_id=9001, user_id=2001, title='good', total_bookmarks=120, total_view=1200, total_comments=12, ai_type=0, x_restrict=0))
+            repo.replace_illust_tags(illust_id=9001, tags=['blue hair'])
+
+            repo.upsert_artist(Artist(user_id=2002, name='negative-overlap'))
+            repo.upsert_illust(Illust(illust_id=9002, user_id=2002, title='bad', total_bookmarks=150, total_view=1400, total_comments=15, ai_type=0, x_restrict=0))
+            repo.replace_illust_tags(illust_id=9002, tags=['gore'])
+
+            repo.upsert_artist(Artist(user_id=2003, name='explicitly-blocked'))
+            repo.upsert_illust(Illust(illust_id=9003, user_id=2003, title='blocked', total_bookmarks=160, total_view=1500, total_comments=16, ai_type=0, x_restrict=0))
+            repo.replace_illust_tags(illust_id=9003, tags=['blue hair'])
+            repo.record_feedback_event(seed_user_id=7, artist_user_id=2003, action='block', source_run_id='run-2', note='block direct')
+
+            repo.replace_artist_candidates(
+                seed_user_id=7,
+                candidates=[
+                    (2001, 'user_related', 'user:1001', 1.0, 'good'),
+                    (2002, 'user_related', 'user:1001', 1.0, 'negative-tag'),
+                    (2003, 'user_related', 'user:1001', 1.0, 'blocked-artist'),
+                ],
+            )
+
+            result = HeuristicArtistRankService(repository=repo).rank_from_store(seed_user_id=7, min_score=0.1)
+
+            self.assertEqual([item.artist.user_id for item in result.items], [2001])
+
 
 if __name__ == '__main__':
     unittest.main()
