@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 from tests import test_support  # noqa: F401
+from pixiv_artist_recsys.domain.models import SeedUser
 from pixiv_artist_recsys.ingest import FollowingSyncService
 from pixiv_artist_recsys.pixiv.models import PagedResult, PixivUserSummary
 from pixiv_artist_recsys.storage import RecommendationRepository, SQLiteDatabase
@@ -39,6 +40,25 @@ class IngestTests(unittest.TestCase):
             self.assertEqual(repository.count_rows('artists'), 3)
             self.assertEqual(repository.count_rows('seed_user_following_artists'), 3)
             self.assertEqual(repository.list_following_artist_ids(seed_user_id=7), [1001, 1002, 1003])
+            seed_user = repository.fetch_seed_user(user_id=7)
+            self.assertIsNotNone(seed_user)
+            self.assertFalse(seed_user.allow_ai)
+            self.assertFalse(seed_user.allow_r18)
+
+    def test_following_sync_preserves_existing_seed_preferences(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repository = RecommendationRepository(SQLiteDatabase(Path(tmpdir) / 'ingest-prefs.sqlite3'))
+            repository.initialize()
+            repository.upsert_seed_user(SeedUser(user_id=7, refresh_token_ref='masked:old', allow_ai=True, allow_r18=True))
+            service = FollowingSyncService(repository=repository, pixiv_client=FakeFollowingClient())
+
+            service.sync_following(seed_user_id=7, refresh_token_ref='masked:new')
+
+            seed_user = repository.fetch_seed_user(user_id=7)
+            self.assertIsNotNone(seed_user)
+            self.assertEqual(seed_user.refresh_token_ref, 'masked:new')
+            self.assertTrue(seed_user.allow_ai)
+            self.assertTrue(seed_user.allow_r18)
 
 
 if __name__ == '__main__':

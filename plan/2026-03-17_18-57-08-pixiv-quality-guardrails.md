@@ -49,7 +49,7 @@ complexity: complex
 
 ## Acceptance Checklist
 - [x] 已生成第五批 plan 与 Issue CSV
-- [ ] 已实现 seed user 偏好持久化
+- [x] 已实现 seed user 偏好持久化
 - [ ] 已实现 rank quality guardrails
 - [ ] 已实现 CLI 质量过滤参数
 - [ ] 全量 unittest 与 compileall 通过

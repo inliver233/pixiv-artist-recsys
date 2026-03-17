@@ -19,8 +19,26 @@ class FollowingSyncService:
         self.repository = repository
         self.pixiv_client = pixiv_client
 
-    def sync_following(self, *, seed_user_id: int, refresh_token_ref: str, restrict: str = 'public') -> FollowingSyncResult:
-        self.repository.upsert_seed_user(SeedUser(user_id=seed_user_id, refresh_token_ref=refresh_token_ref))
+    def sync_following(
+        self,
+        *,
+        seed_user_id: int,
+        refresh_token_ref: str,
+        restrict: str = 'public',
+        allow_ai: bool | None = None,
+        allow_r18: bool | None = None,
+    ) -> FollowingSyncResult:
+        existing = self.repository.fetch_seed_user(user_id=seed_user_id)
+        resolved_allow_ai = existing.allow_ai if allow_ai is None and existing is not None else bool(allow_ai)
+        resolved_allow_r18 = existing.allow_r18 if allow_r18 is None and existing is not None else bool(allow_r18)
+        self.repository.upsert_seed_user(
+            SeedUser(
+                user_id=seed_user_id,
+                refresh_token_ref=refresh_token_ref,
+                allow_ai=resolved_allow_ai,
+                allow_r18=resolved_allow_r18,
+            )
+        )
 
         offset = 0
         pages = 0

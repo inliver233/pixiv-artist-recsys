@@ -29,6 +29,21 @@ class RecommendationRepository:
                 (seed_user.user_id, seed_user.refresh_token_ref, int(seed_user.allow_ai), int(seed_user.allow_r18)),
             )
 
+    def fetch_seed_user(self, *, user_id: int) -> SeedUser | None:
+        with self.database.connect() as conn:
+            row = conn.execute(
+                "SELECT user_id, refresh_token_ref, allow_ai, allow_r18 FROM seed_users WHERE user_id = ?",
+                (user_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return SeedUser(
+            user_id=int(row['user_id']),
+            refresh_token_ref=str(row['refresh_token_ref']),
+            allow_ai=bool(row['allow_ai']),
+            allow_r18=bool(row['allow_r18']),
+        )
+
     def upsert_artist(self, artist: Artist) -> None:
         with self.database.connect() as conn:
             conn.execute(
