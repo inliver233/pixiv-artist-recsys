@@ -52,7 +52,7 @@ complexity: complex
 - [x] 已实现 seed user 偏好持久化
 - [x] 已实现 rank quality guardrails
 - [x] 已实现 CLI 质量过滤参数
-- [ ] 全量 unittest 与 compileall 通过
+- [x] 全量 unittest 与 compileall 通过
 
 ## Risks / Blockers
 - 仅靠 bookmarks / AI / x_restrict 规则仍不足以完全解决审美偏差。
