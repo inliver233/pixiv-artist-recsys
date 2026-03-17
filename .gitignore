@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# Build
+build/
+dist/
+*.egg-info/
+
+# Local runtime data
+data/runtime/
+data/tmp/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
