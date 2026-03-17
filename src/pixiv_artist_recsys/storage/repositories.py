@@ -95,6 +95,37 @@ class RecommendationRepository:
                 (run_id, seed_user_id, json.dumps(summary, ensure_ascii=False)),
             )
 
+    def fetch_recommendation_run(self, *, run_id: str) -> tuple[str, int, str, str] | None:
+        with self.database.connect() as conn:
+            row = conn.execute(
+                "SELECT run_id, seed_user_id, mode, created_at FROM recommendation_runs WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return (str(row['run_id']), int(row['seed_user_id']), str(row['mode']), str(row['created_at']))
+
+    def list_recommendation_runs(self, *, limit: int = 20) -> list[tuple[str, int, str, str]]:
+        with self.database.connect() as conn:
+            rows = conn.execute(
+                "SELECT run_id, seed_user_id, mode, created_at FROM recommendation_runs ORDER BY created_at DESC, run_id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [(str(r['run_id']), int(r['seed_user_id']), str(r['mode']), str(r['created_at'])) for r in rows]
+
+    def fetch_recommendation_items(self, *, run_id: str) -> list[tuple[int, float, float, list[str], list[int]]]:
+        with self.database.connect() as conn:
+            rows = conn.execute(
+                "SELECT artist_user_id, score, confidence, reasons, top_illust_ids FROM recommendation_items WHERE run_id = ? ORDER BY score DESC, confidence DESC, artist_user_id ASC",
+                (run_id,),
+            ).fetchall()
+        result = []
+        for row in rows:
+            reasons = json.loads(str(row['reasons']) or '[]')
+            top_illust_ids = json.loads(str(row['top_illust_ids']) or '[]')
+            result.append((int(row['artist_user_id']), float(row['score']), float(row['confidence']), list(reasons), list(top_illust_ids)))
+        return result
+
     def fetch_run_audit(self, *, run_id: str) -> dict | None:
         with self.database.connect() as conn:
             row = conn.execute(

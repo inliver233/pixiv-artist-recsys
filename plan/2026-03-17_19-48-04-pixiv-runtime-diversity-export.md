@@ -51,7 +51,7 @@ complexity: complex
 - [x] 已生成第八批 plan 与 Issue CSV
 - [x] 已实现统一 runtime 装配层
 - [x] 已实现 diversity-aware ranking
-- [ ] 已实现 run 列表/导出 CLI 与 runtime 接入
+- [x] 已实现 run 列表/导出 CLI 与 runtime 接入
 - [ ] 全量 unittest 与 compileall 通过
 
 ## Risks / Blockers

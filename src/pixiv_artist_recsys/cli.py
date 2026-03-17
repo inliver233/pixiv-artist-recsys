@@ -2,50 +2,27 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
-from dataclasses import asdict
+from pathlib import Path
 
-from .auth import AccessTokenCache, PixivOAuthService, PixivTokenCoordinator
-from .auth.models import PixivTokenRecord
 from .config import load_settings
 from .feedback import FeedbackService
 from .ingest import ArtistIllustHydrationService
 from .pipeline import LiveRecommendationPipeline, LiveRecommendationRequest, RecommendationPipeline, RecommendationRequest
-from .pixiv import CoordinatorBackedAccessTokenProvider, PixivAppApiClient, StaticAccessTokenProvider
 from .profile import UserTasteProfileService
-from .proxy import build_http_transport_from_env
 from .rank import HeuristicArtistRankService
+from .runtime import AppRuntime
 from .services import DryRunCandidateRetriever, DryRunIngestService, DryRunProfileService, DryRunRankService
-from .storage import RecommendationRepository, SQLiteDatabase
+from .storage import RecommendationRepository
+
+
+def _build_runtime() -> AppRuntime:
+    runtime = AppRuntime.create(settings=load_settings())
+    runtime.prepare()
+    return runtime
 
 
 def _build_repository() -> RecommendationRepository:
-    settings = load_settings()
-    settings.ensure_directories()
-    repository = RecommendationRepository(SQLiteDatabase(settings.storage.sqlite_path))
-    repository.initialize()
-    return repository
-
-
-def _resolve_access_token(access_token: str | None = None) -> str:
-    return (access_token or os.getenv("PIXIV_ARTIST_RECSYS_ACCESS_TOKEN", "")).strip()
-
-
-def _resolve_refresh_token(refresh_token: str | None = None) -> str:
-    return (refresh_token or os.getenv("PIXIV_ARTIST_RECSYS_REFRESH_TOKEN", "")).strip()
-
-
-def _resolve_refresh_token_ref(refresh_token: str | None = None, access_token: str | None = None) -> str:
-    resolved_refresh_token = _resolve_refresh_token(refresh_token)
-    if resolved_refresh_token:
-        return PixivTokenRecord.mask_refresh_token(resolved_refresh_token)
-    if _resolve_access_token(access_token):
-        return 'access-token-only'
-    return 'masked:'
-
-
-def _build_network_stack():
-    return build_http_transport_from_env()
+    return _build_runtime().repository
 
 
 def _build_pixiv_client(
@@ -55,27 +32,16 @@ def _build_pixiv_client(
     token_key: str | None = None,
     refresh_token: str | None = None,
     access_token: str | None = None,
-) -> PixivAppApiClient:
-    transport, _ = _build_network_stack()
-    resolved_access_token = _resolve_access_token(access_token)
-    if resolved_access_token:
-        provider = StaticAccessTokenProvider(access_token=resolved_access_token)
-        return PixivAppApiClient(access_token_provider=provider, transport=transport)
-
-    resolved_refresh_token = _resolve_refresh_token(refresh_token)
-    if not resolved_refresh_token:
-        raise ValueError("this command requires --refresh-token or PIXIV_ARTIST_RECSYS_REFRESH_TOKEN (or access token equivalent)")
-
-    provider = CoordinatorBackedAccessTokenProvider(
-        coordinator=PixivTokenCoordinator(
-            cache=AccessTokenCache(),
-            oauth_service=PixivOAuthService(transport=transport),
-            repository=repository,
-        ),
-        token_key=(token_key or f"seed-user:{seed_user_id}"),
-        refresh_token=resolved_refresh_token,
+):
+    runtime = AppRuntime.create(settings=load_settings())
+    runtime.repository = repository
+    runtime.settings.ensure_directories()
+    return runtime.build_pixiv_client(
+        seed_user_id=seed_user_id,
+        token_key=token_key,
+        refresh_token=refresh_token,
+        access_token=access_token,
     )
-    return PixivAppApiClient(access_token_provider=provider, transport=transport)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -101,6 +67,13 @@ def build_parser() -> argparse.ArgumentParser:
     run_audit = sub.add_parser("show-run-audit", help="Show stored audit payload for a recommendation run")
     run_audit.add_argument("--run-id", required=True)
 
+    list_runs = sub.add_parser("list-runs", help="List recent recommendation runs")
+    list_runs.add_argument("--limit", type=int, default=20)
+
+    export_run = sub.add_parser("export-run", help="Export a recommendation run with items and audit payload")
+    export_run.add_argument("--run-id", required=True)
+    export_run.add_argument("--output")
+
     dry = sub.add_parser("dry-run-recommend", help="Run placeholder recommendation pipeline")
     dry.add_argument("--seed-user-id", type=int, default=1)
     dry.add_argument("--refresh-token-ref", default="masked:token")
@@ -122,6 +95,7 @@ def build_parser() -> argparse.ArgumentParser:
     recommend = sub.add_parser("recommend-from-store", help="Rank locally stored candidate artists")
     recommend.add_argument("--seed-user-id", type=int, required=True)
     recommend.add_argument("--max-results", type=int, default=20)
+    recommend.add_argument("--diversity-per-tag", type=int, default=2)
 
     full = sub.add_parser("full-recommend", help="Run the full live Pixiv recommendation pipeline")
     full.add_argument("--seed-user-id", type=int, required=True)
@@ -140,6 +114,7 @@ def build_parser() -> argparse.ArgumentParser:
     full.add_argument("--allow-r18", action="store_true")
     full.add_argument("--min-bookmarks", type=int, default=30)
     full.add_argument("--min-score", type=float, default=0.5)
+    full.add_argument("--diversity-per-tag", type=int, default=2)
     full.add_argument("--stop-word", action="append", default=[])
 
     return parser
@@ -167,12 +142,7 @@ def cmd_show_config() -> int:
 
 
 def cmd_show_proxy_state() -> int:
-    _, proxy_pool = _build_network_stack()
-    payload = {
-        "enabled": proxy_pool is not None,
-        "proxies": [asdict(snapshot) for snapshot in proxy_pool.snapshot()] if proxy_pool is not None else [],
-        "allow_direct_fallback": bool(proxy_pool.policy.allow_direct_fallback) if proxy_pool is not None else True,
-    }
+    payload = _build_runtime().proxy_state_payload()
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0
 
@@ -232,6 +202,60 @@ def cmd_show_run_audit(*, run_id: str) -> int:
     return 0
 
 
+def cmd_list_runs(*, limit: int) -> int:
+    repository = _build_repository()
+    runs = repository.list_recommendation_runs(limit=limit)
+    payload = {
+        "count": len(runs),
+        "runs": [
+            {
+                "run_id": run_id,
+                "seed_user_id": seed_user_id,
+                "mode": mode,
+                "created_at": created_at,
+            }
+            for run_id, seed_user_id, mode, created_at in runs
+        ],
+    }
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_export_run(*, run_id: str, output: str | None = None) -> int:
+    repository = _build_repository()
+    run = repository.fetch_recommendation_run(run_id=run_id)
+    items = repository.fetch_recommendation_items(run_id=run_id)
+    payload = {
+        "found": run is not None,
+        "run": None,
+        "audit": repository.fetch_run_audit(run_id=run_id),
+        "items": [
+            {
+                "artist_user_id": artist_user_id,
+                "score": score,
+                "confidence": confidence,
+                "reasons": reasons,
+                "top_illust_ids": top_illust_ids,
+            }
+            for artist_user_id, score, confidence, reasons, top_illust_ids in items
+        ],
+    }
+    if run is not None:
+        payload["run"] = {
+            "run_id": run[0],
+            "seed_user_id": run[1],
+            "mode": run[2],
+            "created_at": run[3],
+        }
+    if output:
+        output_path = Path(output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding='utf-8')
+        payload["output_path"] = str(output_path)
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0
+
+
 def cmd_dry_run_recommend(seed_user_id: int, refresh_token_ref: str, max_results: int) -> int:
     repository = _build_repository()
     pipeline = RecommendationPipeline(
@@ -274,15 +298,15 @@ def cmd_hydrate_followed_illusts(
     access_token: str | None,
     per_artist_limit: int,
 ) -> int:
-    repository = _build_repository()
+    runtime = _build_runtime()
     pixiv_client = _build_pixiv_client(
-        repository=repository,
+        repository=runtime.repository,
         seed_user_id=seed_user_id,
         token_key=token_key,
         refresh_token=refresh_token,
         access_token=access_token,
     )
-    result = ArtistIllustHydrationService(repository=repository, pixiv_client=pixiv_client).hydrate_followed_artists(
+    result = ArtistIllustHydrationService(repository=runtime.repository, pixiv_client=pixiv_client).hydrate_followed_artists(
         seed_user_id=seed_user_id,
         per_artist_limit=per_artist_limit,
     )
@@ -306,25 +330,24 @@ def cmd_build_profile(*, seed_user_id: int, top_n_tags: int, top_n_pairs: int, s
     payload = {
         "seed_user_id": summary.seed_user_id,
         "artist_count": summary.artist_count,
-        "top_tags": [
-            {"tag": tag, "weight": weight}
-            for tag, weight in summary.top_tags
-        ],
-        "top_pairs": [
-            {"tag_a": pair.tag_a, "tag_b": pair.tag_b, "weight": pair.weight}
-            for pair in summary.top_pairs
-        ],
+        "top_tags": [{"tag": tag, "weight": weight} for tag, weight in summary.top_tags],
+        "top_pairs": [{"tag_a": pair.tag_a, "tag_b": pair.tag_b, "weight": pair.weight} for pair in summary.top_pairs],
     }
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0
 
 
-def cmd_recommend_from_store(*, seed_user_id: int, max_results: int) -> int:
+def cmd_recommend_from_store(*, seed_user_id: int, max_results: int, diversity_per_tag: int) -> int:
     repository = _build_repository()
-    result = HeuristicArtistRankService(repository=repository).rank_from_store(seed_user_id=seed_user_id, max_results=max_results)
+    result = HeuristicArtistRankService(repository=repository).rank_from_store(
+        seed_user_id=seed_user_id,
+        max_results=max_results,
+        diversity_primary_tag_limit=diversity_per_tag,
+    )
     payload = {
         "seed_user_id": result.seed_user_id,
         "item_count": len(result.items),
+        "diversity_per_tag": diversity_per_tag,
         "items": [
             {
                 "artist_user_id": item.artist.user_id,
@@ -360,20 +383,21 @@ def cmd_full_recommend(
     allow_r18: bool,
     min_bookmarks: int,
     min_score: float,
+    diversity_per_tag: int,
     stop_words: list[str],
 ) -> int:
-    repository = _build_repository()
+    runtime = _build_runtime()
     pixiv_client = _build_pixiv_client(
-        repository=repository,
+        repository=runtime.repository,
         seed_user_id=seed_user_id,
         token_key=token_key,
         refresh_token=refresh_token,
         access_token=access_token,
     )
-    result = LiveRecommendationPipeline(repository=repository, pixiv_client=pixiv_client, stop_words=set(stop_words)).run(
+    result = LiveRecommendationPipeline(repository=runtime.repository, pixiv_client=pixiv_client, stop_words=set(stop_words)).run(
         LiveRecommendationRequest(
             seed_user_id=seed_user_id,
-            refresh_token_ref=_resolve_refresh_token_ref(refresh_token=refresh_token, access_token=access_token),
+            refresh_token_ref=AppRuntime.resolve_refresh_token_ref(refresh_token=refresh_token, access_token=access_token),
             restrict=restrict,
             followed_artist_limit=followed_artist_limit,
             candidate_artist_limit=candidate_artist_limit,
@@ -386,6 +410,7 @@ def cmd_full_recommend(
             allow_r18=allow_r18,
             min_total_bookmarks=min_bookmarks,
             min_score=min_score,
+            diversity_primary_tag_limit=diversity_per_tag,
         )
     )
     payload = {
@@ -398,6 +423,7 @@ def cmd_full_recommend(
             "allow_r18": allow_r18,
             "min_bookmarks": min_bookmarks,
             "min_score": min_score,
+            "diversity_per_tag": diversity_per_tag,
         },
         "stats": {
             "following_synced": result.following_result.synced_count,
@@ -449,6 +475,10 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_show_feedback_profile(seed_user_id=args.seed_user_id, top_n_tags=args.top_n_tags)
         if args.command == "show-run-audit":
             return cmd_show_run_audit(run_id=args.run_id)
+        if args.command == "list-runs":
+            return cmd_list_runs(limit=args.limit)
+        if args.command == "export-run":
+            return cmd_export_run(run_id=args.run_id, output=args.output)
         if args.command == "dry-run-recommend":
             return cmd_dry_run_recommend(args.seed_user_id, args.refresh_token_ref, args.max_results)
         if args.command == "hydrate-followed-illusts":
@@ -467,7 +497,7 @@ def main(argv: list[str] | None = None) -> int:
                 stop_words=args.stop_word,
             )
         if args.command == "recommend-from-store":
-            return cmd_recommend_from_store(seed_user_id=args.seed_user_id, max_results=args.max_results)
+            return cmd_recommend_from_store(seed_user_id=args.seed_user_id, max_results=args.max_results, diversity_per_tag=args.diversity_per_tag)
         if args.command == "full-recommend":
             return cmd_full_recommend(
                 seed_user_id=args.seed_user_id,
@@ -486,6 +516,7 @@ def main(argv: list[str] | None = None) -> int:
                 allow_r18=args.allow_r18,
                 min_bookmarks=args.min_bookmarks,
                 min_score=args.min_score,
+                diversity_per_tag=args.diversity_per_tag,
                 stop_words=args.stop_word,
             )
     except ValueError as exc:

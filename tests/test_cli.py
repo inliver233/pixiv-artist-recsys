@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 from tests import test_support  # noqa: F401
 from pixiv_artist_recsys import cli
-from pixiv_artist_recsys.domain.models import Artist, Illust, SeedUser
+from pixiv_artist_recsys.domain.models import Artist, Illust, RecommendationItem, RecommendationRun, SeedUser
 from pixiv_artist_recsys.pixiv.models import PagedResult, PixivIllustDetail, PixivIllustSummary, PixivUserSummary
 from pixiv_artist_recsys.storage import RecommendationRepository, SQLiteDatabase
 
@@ -197,6 +197,30 @@ class CLITests(unittest.TestCase):
             self.assertEqual(payload['run_id'], 'run-audit-1')
             self.assertEqual(payload['audit']['candidate']['candidate_count'], 3)
 
+    def test_list_runs_and_export_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = self._repo(tmpdir)
+            repo.record_run(RecommendationRun(
+                seed_user_id=7,
+                run_id='run-export-1',
+                mode='live-heuristic',
+                items=[RecommendationItem(artist=Artist(user_id=2001, name='candidate-a'), score=1.23, confidence=0.88, reasons=['ok'], top_illust_ids=[9001])],
+            ))
+            repo.upsert_run_audit(run_id='run-export-1', seed_user_id=7, summary={'ranked': {'artist_user_ids': [2001]}})
+
+            exit_code, payload = self._run_main_inprocess('list-runs', '--limit', '5', tmpdir=tmpdir)
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(payload['count'], 1)
+            self.assertEqual(payload['runs'][0]['run_id'], 'run-export-1')
+
+            export_path = str(Path(tmpdir) / 'exports' / 'run-export-1.json')
+            exit_code, payload = self._run_main_inprocess('export-run', '--run-id', 'run-export-1', '--output', export_path, tmpdir=tmpdir)
+            self.assertEqual(exit_code, 0)
+            self.assertTrue(payload['found'])
+            self.assertEqual(payload['run']['run_id'], 'run-export-1')
+            self.assertEqual(payload['items'][0]['artist_user_id'], 2001)
+            self.assertTrue(Path(export_path).exists())
+
     def test_dry_run_recommend_outputs_placeholder_artist(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             result = self._run_cli("dry-run-recommend", "--seed-user-id", "11", tmpdir=tmpdir)
@@ -236,10 +260,11 @@ class CLITests(unittest.TestCase):
             repo.replace_illust_tags(illust_id=9001, tags=['blue hair', '制服'])
             repo.replace_artist_candidates(seed_user_id=7, candidates=[(2001, 'user_related', 'user:1001', 1.0, 'rel')])
 
-            exit_code, payload = self._run_main_inprocess('recommend-from-store', '--seed-user-id', '7', '--max-results', '5', tmpdir=tmpdir)
+            exit_code, payload = self._run_main_inprocess('recommend-from-store', '--seed-user-id', '7', '--max-results', '5', '--diversity-per-tag', '1', tmpdir=tmpdir)
 
             self.assertEqual(exit_code, 0)
             self.assertEqual(payload['item_count'], 1)
+            self.assertEqual(payload['diversity_per_tag'], 1)
             self.assertEqual(payload['items'][0]['artist_user_id'], 2001)
             self.assertTrue(payload['items'][0]['reasons'])
 
@@ -279,6 +304,7 @@ class CLITests(unittest.TestCase):
                     '--allow-ai',
                     '--min-bookmarks', '100',
                     '--min-score', '1.0',
+                    '--diversity-per-tag', '1',
                     tmpdir=tmpdir,
                 )
 
@@ -290,6 +316,7 @@ class CLITests(unittest.TestCase):
             self.assertEqual(payload['filters']['allow_r18'], False)
             self.assertEqual(payload['filters']['min_bookmarks'], 100)
             self.assertEqual(payload['filters']['min_score'], 1.0)
+            self.assertEqual(payload['filters']['diversity_per_tag'], 1)
             self.assertEqual(payload['recommended_artist_ids'], [2001])
             self.assertEqual(payload['stats']['candidate_count'], 2)
             self.assertTrue(payload['items'])
