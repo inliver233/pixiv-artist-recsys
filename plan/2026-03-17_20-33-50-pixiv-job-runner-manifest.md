@@ -46,10 +46,10 @@ complexity: medium
 - none：继续使用本地 JSON + fake client 测试
 
 ## Acceptance Checklist
-- [ ] 已生成第十一批 plan 与 Issue CSV
-- [ ] 已实现 jobs runner / manifest parser
-- [ ] 已实现 CLI run-seed-job / run-manifest
-- [ ] 全量 unittest 与 compileall 通过
+- [x] 已生成第十一批 plan 与 Issue CSV
+- [x] 已实现 jobs runner / manifest parser
+- [x] 已实现 CLI run-seed-job / run-manifest
+- [x] 全量 unittest 与 compileall 通过
 
 ## Risks / Blockers
 - manifest 中含 token 时需要确保仅本地使用。
