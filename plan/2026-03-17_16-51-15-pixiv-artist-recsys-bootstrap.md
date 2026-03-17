@@ -49,11 +49,11 @@ complexity: complex
 - context7：后续查框架文档时使用
 
 ## Acceptance Checklist
-- [ ] 本地仓库已初始化并切换到 `test` 分支
-- [ ] 已生成调查 CSV、架构文档、Plan、Issue CSV
-- [ ] 已建立 Python 代码骨架与本地存储骨架
-- [ ] 已建立 CLI 与最小测试
-- [ ] 已明确后续 issue 路线图
+- [x] 本地仓库已初始化并切换到 `test` 分支
+- [x] 已生成调查 CSV、架构文档、Plan、Issue CSV
+- [x] 已建立 Python 代码骨架与本地存储骨架
+- [x] 已建立 CLI 与最小测试
+- [x] 已明确后续 issue 路线图
 
 ## Risks / Blockers
 - Pixiv API/登录协议未来可能变化
