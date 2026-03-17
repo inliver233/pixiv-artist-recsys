@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import asdict
 
+from ..auth.models import PixivTokenRecord
 from ..domain.models import Artist, RecommendationRun, SeedUser
 from .database import SQLiteDatabase
 
@@ -70,3 +71,54 @@ class RecommendationRepository:
         with self.database.connect() as conn:
             row = conn.execute(f"SELECT COUNT(*) AS c FROM {table_name}").fetchone()
         return int(row['c'])
+
+    def upsert_token_record(self, record: PixivTokenRecord) -> None:
+        with self.database.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO pixiv_tokens (
+                    token_key, refresh_token_ref, access_token, token_type, expires_at_epoch,
+                    refresh_token_rotated, user_id, last_refreshed_at, last_error
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(token_key) DO UPDATE SET
+                    refresh_token_ref=excluded.refresh_token_ref,
+                    access_token=excluded.access_token,
+                    token_type=excluded.token_type,
+                    expires_at_epoch=excluded.expires_at_epoch,
+                    refresh_token_rotated=excluded.refresh_token_rotated,
+                    user_id=excluded.user_id,
+                    last_refreshed_at=excluded.last_refreshed_at,
+                    last_error=excluded.last_error
+                """,
+                (
+                    record.token_key,
+                    record.refresh_token_ref,
+                    record.access_token,
+                    record.token_type,
+                    record.expires_at_epoch,
+                    record.refresh_token_rotated,
+                    record.user_id,
+                    record.last_refreshed_at,
+                    record.last_error,
+                ),
+            )
+
+    def get_token_record(self, token_key: str) -> PixivTokenRecord | None:
+        with self.database.connect() as conn:
+            row = conn.execute(
+                "SELECT token_key, refresh_token_ref, access_token, token_type, expires_at_epoch, refresh_token_rotated, user_id, last_refreshed_at, last_error FROM pixiv_tokens WHERE token_key = ?",
+                (token_key,),
+            ).fetchone()
+        if row is None:
+            return None
+        return PixivTokenRecord(
+            token_key=str(row['token_key']),
+            refresh_token_ref=str(row['refresh_token_ref']),
+            access_token=str(row['access_token']),
+            token_type=str(row['token_type']),
+            expires_at_epoch=int(row['expires_at_epoch']),
+            refresh_token_rotated=str(row['refresh_token_rotated']),
+            user_id=int(row['user_id']) if row['user_id'] is not None else None,
+            last_refreshed_at=str(row['last_refreshed_at']),
+            last_error=str(row['last_error']),
+        )

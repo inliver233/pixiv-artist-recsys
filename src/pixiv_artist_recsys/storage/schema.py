@@ -2,6 +2,19 @@ from __future__ import annotations
 
 SCHEMA_STATEMENTS = [
     """
+    CREATE TABLE IF NOT EXISTS pixiv_tokens (
+        token_key TEXT PRIMARY KEY,
+        refresh_token_ref TEXT NOT NULL,
+        access_token TEXT NOT NULL DEFAULT '',
+        token_type TEXT NOT NULL DEFAULT 'Bearer',
+        expires_at_epoch INTEGER NOT NULL DEFAULT 0,
+        refresh_token_rotated TEXT NOT NULL DEFAULT '',
+        user_id INTEGER,
+        last_refreshed_at TEXT NOT NULL DEFAULT '',
+        last_error TEXT NOT NULL DEFAULT ''
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS seed_users (
         user_id INTEGER PRIMARY KEY,
         refresh_token_ref TEXT NOT NULL,
