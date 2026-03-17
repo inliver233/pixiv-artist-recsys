@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from ..feedback import FeedbackService
-from ..ingest import ArtistIllustHydrationService
+from ..ingest import ArtistIllustHydrationService, FollowingSyncService
 from ..pipeline import LiveRecommendationPipeline, LiveRecommendationRequest, RecommendationPipeline, RecommendationRequest
 from ..profile import UserTasteProfileService
 from ..rank import HeuristicArtistRankService
@@ -162,6 +162,13 @@ class ApplicationFacade:
             refresh_token=refresh_token,
             access_token=access_token,
         )
+        following_result = FollowingSyncService(
+            repository=self.runtime.repository,
+            pixiv_client=pixiv_client,
+        ).sync_following(
+            seed_user_id=seed_user_id,
+            refresh_token_ref=AppRuntime.resolve_refresh_token_ref(refresh_token=refresh_token, access_token=access_token),
+        )
         result = ArtistIllustHydrationService(
             repository=self.runtime.repository,
             pixiv_client=pixiv_client,
@@ -171,6 +178,7 @@ class ApplicationFacade:
         )
         return {
             'seed_user_id': result.seed_user_id,
+            'following_synced': following_result.synced_count,
             'artists_processed': result.artists_processed,
             'illusts_upserted': result.illusts_upserted,
             'per_artist_limit': per_artist_limit,

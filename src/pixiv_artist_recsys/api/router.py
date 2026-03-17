@@ -5,8 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping
 from urllib.parse import parse_qs, urlsplit
 
-from ..feedback import FeedbackService
-from ..rank import HeuristicArtistRankService
+from ..application import ApplicationFacade
 from ..runtime import AppRuntime
 
 
@@ -45,8 +44,9 @@ class ApiResponse:
 
 
 class ApiRouter:
-    def __init__(self, *, runtime: AppRuntime) -> None:
+    def __init__(self, *, runtime: AppRuntime, application: ApplicationFacade | None = None) -> None:
         self.runtime = runtime
+        self.application = application or ApplicationFacade(runtime=runtime)
 
     def handle(self, request: ApiRequest) -> ApiResponse:
         normalized_path = self._normalize_path(request.path)
@@ -71,45 +71,26 @@ class ApiRouter:
                 },
             )
         if path == '/config':
-            return ApiResponse(status_code=200, payload=self.runtime.settings_payload())
+            return ApiResponse(status_code=200, payload=self.application.show_config_payload())
         if path == '/proxy-state':
-            return ApiResponse(status_code=200, payload=self.runtime.proxy_state_payload())
+            return ApiResponse(status_code=200, payload=self.application.show_proxy_state_payload())
         if path == '/runs':
             limit = self._query_int(request, 'limit', default=20)
-            runs = self.runtime.repository.list_recommendation_runs(limit=limit)
-            return ApiResponse(
-                status_code=200,
-                payload={
-                    'count': len(runs),
-                    'runs': [
-                        {
-                            'run_id': run_id,
-                            'seed_user_id': seed_user_id,
-                            'mode': mode,
-                            'created_at': created_at,
-                        }
-                        for run_id, seed_user_id, mode, created_at in runs
-                    ],
-                },
-            )
+            return ApiResponse(status_code=200, payload=self.application.list_runs_payload(limit=limit))
         if len(segments) == 2 and segments[0] == 'runs':
-            return ApiResponse(status_code=200, payload=self._run_payload(run_id=segments[1]))
+            return ApiResponse(status_code=200, payload=self.application.export_run_payload(run_id=segments[1]))
         if len(segments) == 3 and segments[0] == 'runs' and segments[2] == 'audit':
-            return ApiResponse(
-                status_code=200,
-                payload={
-                    'run_id': segments[1],
-                    'audit': self.runtime.repository.fetch_run_audit(run_id=segments[1]),
-                },
-            )
+            return ApiResponse(status_code=200, payload=self.application.run_audit_payload(run_id=segments[1]))
         if path == '/feedback/profile':
             seed_user_id = self._query_int(request, 'seed_user_id')
             top_n_tags = self._query_int(request, 'top_n_tags', default=20)
-            summary = FeedbackService(repository=self.runtime.repository).build_negative_profile(
-                seed_user_id=seed_user_id,
-                top_n_tags=top_n_tags,
+            return ApiResponse(
+                status_code=200,
+                payload=self.application.feedback_profile_payload(
+                    seed_user_id=seed_user_id,
+                    top_n_tags=top_n_tags,
+                ),
             )
-            return ApiResponse(status_code=200, payload=self._negative_profile_payload(summary))
         if path == '/recommend/from-store':
             seed_user_id = self._query_int(request, 'seed_user_id')
             max_results = self._query_int(request, 'max_results', default=self.runtime.settings.recommendation.max_results)
@@ -118,57 +99,85 @@ class ApiRouter:
                 'diversity_per_tag',
                 default=self.runtime.settings.recommendation.diversity_per_tag,
             )
-            result = HeuristicArtistRankService(repository=self.runtime.repository).rank_from_store(
-                seed_user_id=seed_user_id,
-                max_results=max_results,
-                allow_ai=self._query_bool(request, 'allow_ai', default=None),
-                allow_r18=self._query_bool(request, 'allow_r18', default=None),
-                min_total_bookmarks=self._query_int(
-                    request,
-                    'min_bookmarks',
-                    default=self.runtime.settings.recommendation.min_bookmarks,
-                ),
-                min_score=self._query_float(request, 'min_score', default=self.runtime.settings.recommendation.min_score),
-                diversity_primary_tag_limit=diversity_per_tag,
-            )
             return ApiResponse(
                 status_code=200,
-                payload={
-                    'seed_user_id': result.seed_user_id,
-                    'item_count': len(result.items),
-                    'diversity_per_tag': diversity_per_tag,
-                    'items': [
-                        {
-                            'artist_user_id': item.artist.user_id,
-                            'artist_name': item.artist.name,
-                            'artist_account': item.artist.account,
-                            'score': item.score,
-                            'confidence': item.confidence,
-                            'reasons': item.reasons,
-                            'top_illust_ids': item.top_illust_ids,
-                        }
-                        for item in result.items
-                    ],
-                },
+                payload=self.application.recommend_from_store_payload(
+                    seed_user_id=seed_user_id,
+                    max_results=max_results,
+                    diversity_per_tag=diversity_per_tag,
+                    allow_ai=self._query_bool(request, 'allow_ai', default=None),
+                    allow_r18=self._query_bool(request, 'allow_r18', default=None),
+                    min_bookmarks=self._query_int(
+                        request,
+                        'min_bookmarks',
+                        default=self.runtime.settings.recommendation.min_bookmarks,
+                    ),
+                    min_score=self._query_float(request, 'min_score', default=self.runtime.settings.recommendation.min_score),
+                ),
             )
         return ApiResponse(status_code=404, payload={'error': 'not_found', 'path': path})
 
     def _handle_post(self, path: str, request: ApiRequest) -> ApiResponse:
-        if path != '/feedback':
-            return ApiResponse(status_code=404, payload={'error': 'not_found', 'path': path})
         body = self._json_body(request)
-        summary = FeedbackService(repository=self.runtime.repository).record_feedback(
-            seed_user_id=int(body['seed_user_id']),
-            artist_user_id=int(body['artist_user_id']),
-            action=str(body['action']),
-            source_run_id=str(body.get('source_run_id', '')),
-            note=str(body.get('note', '')),
-            top_n_tags=int(body.get('top_n_tags', 20)),
-        )
-        payload = self._negative_profile_payload(summary)
-        payload['artist_user_id'] = int(body['artist_user_id'])
-        payload['action'] = str(body['action']).strip().lower()
-        return ApiResponse(status_code=200, payload=payload)
+        if path == '/feedback':
+            return ApiResponse(
+                status_code=200,
+                payload=self.application.record_feedback_payload(
+                    seed_user_id=self._required_body_int(body, 'seed_user_id'),
+                    artist_user_id=self._required_body_int(body, 'artist_user_id'),
+                    action=self._required_body_text(body, 'action'),
+                    source_run_id=self._optional_body_text(body, 'source_run_id', default='') or '',
+                    note=self._optional_body_text(body, 'note', default='') or '',
+                    top_n_tags=self._optional_body_int(body, 'top_n_tags', default=20) or 20,
+                ),
+            )
+        if path == '/hydrate/followed-illusts':
+            return ApiResponse(
+                status_code=200,
+                payload=self.application.hydrate_followed_illusts_payload(
+                    seed_user_id=self._required_body_int(body, 'seed_user_id'),
+                    token_key=self._optional_body_text(body, 'token_key', default=None),
+                    refresh_token=self._optional_body_text(body, 'refresh_token', default=None),
+                    access_token=self._optional_body_text(body, 'access_token', default=None),
+                    per_artist_limit=self._optional_body_int(body, 'per_artist_limit', default=5) or 5,
+                ),
+            )
+        if path == '/profile/build':
+            return ApiResponse(
+                status_code=200,
+                payload=self.application.build_profile_payload(
+                    seed_user_id=self._required_body_int(body, 'seed_user_id'),
+                    top_n_tags=self._optional_body_int(body, 'top_n_tags', default=20) or 20,
+                    top_n_pairs=self._optional_body_int(body, 'top_n_pairs', default=20) or 20,
+                    stop_words=self._optional_body_list(body, 'stop_words'),
+                ),
+            )
+        if path == '/recommend/full':
+            recommendation = self.runtime.settings.recommendation
+            return ApiResponse(
+                status_code=200,
+                payload=self.application.full_recommend_payload(
+                    seed_user_id=self._required_body_int(body, 'seed_user_id'),
+                    token_key=self._optional_body_text(body, 'token_key', default=None),
+                    refresh_token=self._optional_body_text(body, 'refresh_token', default=None),
+                    access_token=self._optional_body_text(body, 'access_token', default=None),
+                    restrict=self._optional_body_text(body, 'restrict', default='public') or 'public',
+                    followed_artist_limit=self._optional_body_int(body, 'followed_artist_limit', default=5) or 5,
+                    candidate_artist_limit=self._optional_body_int(body, 'candidate_artist_limit', default=3) or 3,
+                    max_related_per_artist=self._optional_body_int(body, 'max_related_per_artist', default=5) or 5,
+                    max_related_per_illust=self._optional_body_int(body, 'max_related_per_illust', default=5) or 5,
+                    top_n_tags=self._optional_body_int(body, 'top_n_tags', default=20) or 20,
+                    top_n_pairs=self._optional_body_int(body, 'top_n_pairs', default=20) or 20,
+                    max_results=self._optional_body_int(body, 'max_results', default=recommendation.max_results),
+                    allow_ai=self._optional_body_bool(body, 'allow_ai', default=recommendation.allow_ai),
+                    allow_r18=self._optional_body_bool(body, 'allow_r18', default=recommendation.allow_r18),
+                    min_bookmarks=self._optional_body_int(body, 'min_bookmarks', default=recommendation.min_bookmarks),
+                    min_score=self._optional_body_float(body, 'min_score', default=recommendation.min_score),
+                    diversity_per_tag=self._optional_body_int(body, 'diversity_per_tag', default=recommendation.diversity_per_tag),
+                    stop_words=self._optional_body_list(body, 'stop_words'),
+                ),
+            )
+        return ApiResponse(status_code=404, payload={'error': 'not_found', 'path': path})
 
     @staticmethod
     def _normalize_path(path: str) -> str:
@@ -233,39 +242,69 @@ class ApiRouter:
             raise ValueError('json body must be an object')
         return payload
 
-    def _run_payload(self, *, run_id: str) -> dict[str, Any]:
-        run = self.runtime.repository.fetch_recommendation_run(run_id=run_id)
-        items = self.runtime.repository.fetch_recommendation_items(run_id=run_id)
-        payload: dict[str, Any] = {
-            'found': run is not None,
-            'run': None,
-            'audit': self.runtime.repository.fetch_run_audit(run_id=run_id),
-            'items': [
-                {
-                    'artist_user_id': artist_user_id,
-                    'score': score,
-                    'confidence': confidence,
-                    'reasons': reasons,
-                    'top_illust_ids': top_illust_ids,
-                }
-                for artist_user_id, score, confidence, reasons, top_illust_ids in items
-            ],
-        }
-        if run is not None:
-            payload['run'] = {
-                'run_id': run[0],
-                'seed_user_id': run[1],
-                'mode': run[2],
-                'created_at': run[3],
-            }
-        return payload
+    @staticmethod
+    def _required_body_int(body: dict[str, Any], key: str) -> int:
+        if key not in body:
+            raise ValueError(f'missing required body field: {key}')
+        value = ApiRouter._optional_body_int(body, key, default=None)
+        if value is None:
+            raise ValueError(f'missing required body field: {key}')
+        return value
 
     @staticmethod
-    def _negative_profile_payload(summary) -> dict[str, Any]:
-        return {
-            'seed_user_id': summary.seed_user_id,
-            'event_count': summary.event_count,
-            'negative_tags': [{'tag': tag, 'weight': weight} for tag, weight in summary.negative_tags],
-            'disliked_artist_ids': summary.disliked_artist_ids,
-            'blocked_artist_ids': summary.blocked_artist_ids,
-        }
+    def _optional_body_int(body: dict[str, Any], key: str, default: int | None) -> int | None:
+        value = body.get(key)
+        if value is None or value == '':
+            return default
+        try:
+            return int(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f'invalid integer body field for {key}: {value}') from exc
+
+    @staticmethod
+    def _optional_body_float(body: dict[str, Any], key: str, default: float) -> float:
+        value = body.get(key)
+        if value is None or value == '':
+            return default
+        try:
+            return float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f'invalid float body field for {key}: {value}') from exc
+
+    @staticmethod
+    def _required_body_text(body: dict[str, Any], key: str) -> str:
+        value = ApiRouter._optional_body_text(body, key, default=None)
+        if value is None:
+            raise ValueError(f'missing required body field: {key}')
+        return value
+
+    @staticmethod
+    def _optional_body_text(body: dict[str, Any], key: str, default: str | None) -> str | None:
+        value = body.get(key)
+        if value is None:
+            return default
+        text = str(value).strip()
+        return text or default
+
+    @staticmethod
+    def _optional_body_bool(body: dict[str, Any], key: str, default: bool) -> bool:
+        value = body.get(key)
+        if value is None or value == '':
+            return default
+        if isinstance(value, bool):
+            return value
+        normalized = str(value).strip().lower()
+        if normalized in {'1', 'true', 'yes', 'on'}:
+            return True
+        if normalized in {'0', 'false', 'no', 'off'}:
+            return False
+        raise ValueError(f'invalid boolean body field for {key}: {value}')
+
+    @staticmethod
+    def _optional_body_list(body: dict[str, Any], key: str) -> list[str]:
+        value = body.get(key)
+        if value is None or value == '':
+            return []
+        if isinstance(value, list):
+            return [str(item) for item in value if str(item).strip()]
+        return [str(value)]
