@@ -38,7 +38,8 @@ complexity: complex
 - CSV 合法 -> `python .codex/skills/plan/scripts/validate_issues_csv.py issues/2026-03-17_18-29-05-pixiv-profile-candidate-ranking.csv`
 - Hydration -> `python -m unittest -v tests.test_hydration`
 - Profile -> `python -m unittest -v tests.test_profile`
-- Candidate + Rank -> `python -m unittest -v tests.test_candidate_rank`
+- Candidate -> `python -m unittest -v tests.test_candidate_rank.CandidateRetrievalTests`
+- Rank -> `python -m unittest -v tests.test_rank.RankServiceTests`
 - 全量回归 -> `python -m unittest -v && python -m compileall -q src tests`
 
 ## Issue CSV
@@ -49,11 +50,11 @@ complexity: complex
 - none：本批继续以本地 Python 实现与 fake transport 测试为主
 
 ## Acceptance Checklist
-- [ ] 已生成第三批 plan 与 Issue CSV
-- [ ] 已实现 followed-artist illust hydration 与标签入库
-- [ ] 已实现 profile build 与 candidate retrieval
+- [x] 已生成第三批 plan 与 Issue CSV
+- [x] 已实现 followed-artist illust hydration 与标签入库
+- [x] 已实现 profile build 与 candidate retrieval
 - [x] 已实现 heuristic artist rank 与 CLI 命令
-- [ ] 全量 unittest 与 compileall 通过
+- [x] 全量 unittest 与 compileall 通过
 
 ## Risks / Blockers
 - 若真实 Pixiv related 接口返回结构与假定不同，后续需调整 DTO 解析
