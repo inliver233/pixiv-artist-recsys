@@ -6,6 +6,7 @@ import json
 from .api import serve_api
 from .application import ApplicationFacade
 from .config import load_settings
+from .jobs import SeedJobRequest, SeedJobRunner
 from .runtime import AppRuntime
 from .storage import RecommendationRepository
 
@@ -41,6 +42,33 @@ def _build_facade(*, runtime: AppRuntime | None = None) -> ApplicationFacade:
 
 def _print_payload(payload: dict[str, object]) -> None:
     print(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+def _build_job_runner() -> SeedJobRunner:
+    return SeedJobRunner(facade=_build_facade())
+
+
+def _add_recommendation_args(parser: argparse.ArgumentParser, *, settings, include_output: bool = False) -> None:
+    parser.add_argument('--seed-user-id', type=int, required=True)
+    parser.add_argument('--token-key')
+    parser.add_argument('--refresh-token')
+    parser.add_argument('--access-token')
+    parser.add_argument('--restrict', default='public')
+    parser.add_argument('--followed-artist-limit', type=int, default=5)
+    parser.add_argument('--candidate-artist-limit', type=int, default=3)
+    parser.add_argument('--max-related-per-artist', type=int, default=5)
+    parser.add_argument('--max-related-per-illust', type=int, default=5)
+    parser.add_argument('--top-n-tags', type=int, default=20)
+    parser.add_argument('--top-n-pairs', type=int, default=20)
+    parser.add_argument('--max-results', type=int, default=settings.recommendation.max_results)
+    parser.add_argument('--allow-ai', action=argparse.BooleanOptionalAction, default=settings.recommendation.allow_ai)
+    parser.add_argument('--allow-r18', action=argparse.BooleanOptionalAction, default=settings.recommendation.allow_r18)
+    parser.add_argument('--min-bookmarks', type=int, default=settings.recommendation.min_bookmarks)
+    parser.add_argument('--min-score', type=float, default=settings.recommendation.min_score)
+    parser.add_argument('--diversity-per-tag', type=int, default=settings.recommendation.diversity_per_tag)
+    parser.add_argument('--stop-word', action='append', default=[])
+    if include_output:
+        parser.add_argument('--output')
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -101,24 +129,15 @@ def build_parser() -> argparse.ArgumentParser:
     recommend.add_argument('--diversity-per-tag', type=int, default=settings.recommendation.diversity_per_tag)
 
     full = sub.add_parser('full-recommend', help='Run the full live Pixiv recommendation pipeline')
-    full.add_argument('--seed-user-id', type=int, required=True)
-    full.add_argument('--token-key')
-    full.add_argument('--refresh-token')
-    full.add_argument('--access-token')
-    full.add_argument('--restrict', default='public')
-    full.add_argument('--followed-artist-limit', type=int, default=5)
-    full.add_argument('--candidate-artist-limit', type=int, default=3)
-    full.add_argument('--max-related-per-artist', type=int, default=5)
-    full.add_argument('--max-related-per-illust', type=int, default=5)
-    full.add_argument('--top-n-tags', type=int, default=20)
-    full.add_argument('--top-n-pairs', type=int, default=20)
-    full.add_argument('--max-results', type=int, default=settings.recommendation.max_results)
-    full.add_argument('--allow-ai', action=argparse.BooleanOptionalAction, default=settings.recommendation.allow_ai)
-    full.add_argument('--allow-r18', action=argparse.BooleanOptionalAction, default=settings.recommendation.allow_r18)
-    full.add_argument('--min-bookmarks', type=int, default=settings.recommendation.min_bookmarks)
-    full.add_argument('--min-score', type=float, default=settings.recommendation.min_score)
-    full.add_argument('--diversity-per-tag', type=int, default=settings.recommendation.diversity_per_tag)
-    full.add_argument('--stop-word', action='append', default=[])
+    _add_recommendation_args(full, settings=settings)
+
+    run_seed_job = sub.add_parser('run-seed-job', help='Execute one live recommendation job and write a snapshot file')
+    _add_recommendation_args(run_seed_job, settings=settings, include_output=True)
+
+    run_manifest = sub.add_parser('run-manifest', help='Execute multiple recommendation jobs from a local JSON manifest')
+    run_manifest.add_argument('--manifest', required=True)
+    run_manifest.add_argument('--output-dir')
+    run_manifest.add_argument('--fail-fast', action='store_true')
 
     return parser
 
@@ -295,6 +314,84 @@ def cmd_full_recommend(
     return 0
 
 
+def cmd_run_seed_job(
+    *,
+    seed_user_id: int,
+    token_key: str | None,
+    refresh_token: str | None,
+    access_token: str | None,
+    restrict: str,
+    followed_artist_limit: int,
+    candidate_artist_limit: int,
+    max_related_per_artist: int,
+    max_related_per_illust: int,
+    top_n_tags: int,
+    top_n_pairs: int,
+    max_results: int,
+    allow_ai: bool,
+    allow_r18: bool,
+    min_bookmarks: int,
+    min_score: float,
+    diversity_per_tag: int,
+    stop_words: list[str],
+    output: str | None,
+) -> int:
+    result = _build_job_runner().run(
+        SeedJobRequest(
+            seed_user_id=seed_user_id,
+            token_key=token_key,
+            refresh_token=refresh_token,
+            access_token=access_token,
+            restrict=restrict,
+            followed_artist_limit=followed_artist_limit,
+            candidate_artist_limit=candidate_artist_limit,
+            max_related_per_artist=max_related_per_artist,
+            max_related_per_illust=max_related_per_illust,
+            top_n_tags=top_n_tags,
+            top_n_pairs=top_n_pairs,
+            max_results=max_results,
+            allow_ai=allow_ai,
+            allow_r18=allow_r18,
+            min_bookmarks=min_bookmarks,
+            min_score=min_score,
+            diversity_per_tag=diversity_per_tag,
+            stop_words=tuple(stop_words),
+        ),
+        output_path=output,
+    )
+    payload = dict(result.payload)
+    payload['output_path'] = result.output_path
+    _print_payload(payload)
+    return 0
+
+
+def cmd_run_manifest(*, manifest: str, output_dir: str | None, fail_fast: bool) -> int:
+    summary = _build_job_runner().run_manifest(
+        manifest_path=manifest,
+        output_dir=output_dir,
+        fail_fast=fail_fast,
+    )
+    _print_payload(
+        {
+            'manifest_path': summary.manifest_path,
+            'output_dir': summary.output_dir,
+            'jobs_requested': summary.jobs_requested,
+            'jobs_succeeded': summary.jobs_succeeded,
+            'jobs_failed': summary.jobs_failed,
+            'results': [
+                {
+                    'seed_user_id': item.seed_user_id,
+                    'run_id': item.run_id,
+                    'output_path': item.output_path,
+                }
+                for item in summary.results
+            ],
+            'errors': summary.errors,
+        }
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -364,6 +461,30 @@ def main(argv: list[str] | None = None) -> int:
                 diversity_per_tag=args.diversity_per_tag,
                 stop_words=args.stop_word,
             )
+        if args.command == 'run-seed-job':
+            return cmd_run_seed_job(
+                seed_user_id=args.seed_user_id,
+                token_key=args.token_key,
+                refresh_token=args.refresh_token,
+                access_token=args.access_token,
+                restrict=args.restrict,
+                followed_artist_limit=args.followed_artist_limit,
+                candidate_artist_limit=args.candidate_artist_limit,
+                max_related_per_artist=args.max_related_per_artist,
+                max_related_per_illust=args.max_related_per_illust,
+                top_n_tags=args.top_n_tags,
+                top_n_pairs=args.top_n_pairs,
+                max_results=args.max_results,
+                allow_ai=args.allow_ai,
+                allow_r18=args.allow_r18,
+                min_bookmarks=args.min_bookmarks,
+                min_score=args.min_score,
+                diversity_per_tag=args.diversity_per_tag,
+                stop_words=args.stop_word,
+                output=args.output,
+            )
+        if args.command == 'run-manifest':
+            return cmd_run_manifest(manifest=args.manifest, output_dir=args.output_dir, fail_fast=args.fail_fast)
     except ValueError as exc:
         parser.error(str(exc))
         return 2

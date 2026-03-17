@@ -158,6 +158,69 @@ class CLITests(unittest.TestCase):
             self.assertIn("api", payload)
             self.assertIn("recommendation", payload)
 
+    def test_run_seed_job_writes_snapshot_output(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            snapshot_path = str(Path(tmpdir) / 'exports' / 'seed-7.json')
+            with patch('pixiv_artist_recsys.cli._build_pixiv_client', return_value=FakeFullRecommendClient()):
+                exit_code, payload = self._run_main_inprocess(
+                    'run-seed-job',
+                    '--seed-user-id', '7',
+                    '--refresh-token', 'dummy-refresh-token',
+                    '--followed-artist-limit', '1',
+                    '--candidate-artist-limit', '1',
+                    '--max-results', '5',
+                    '--min-bookmarks', '100',
+                    '--min-score', '1.0',
+                    '--diversity-per-tag', '1',
+                    '--output', snapshot_path,
+                    tmpdir=tmpdir,
+                )
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(payload['recommended_artist_ids'], [2001])
+            self.assertEqual(payload['output_path'], snapshot_path)
+            self.assertTrue(Path(snapshot_path).exists())
+
+    def test_run_manifest_executes_jobs_and_writes_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            manifest_path = Path(tmpdir) / 'manifest.json'
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        'jobs': [
+                            {
+                                'seed_user_id': 7,
+                                'refresh_token': 'dummy-refresh-token',
+                                'followed_artist_limit': 1,
+                                'candidate_artist_limit': 1,
+                                'max_results': 5,
+                                'min_bookmarks': 100,
+                                'min_score': 1.0,
+                                'diversity_per_tag': 1,
+                                'output_name': 'seed-7.json',
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding='utf-8',
+            )
+            output_dir = str(Path(tmpdir) / 'job_exports')
+            with patch('pixiv_artist_recsys.cli._build_pixiv_client', return_value=FakeFullRecommendClient()):
+                exit_code, payload = self._run_main_inprocess(
+                    'run-manifest',
+                    '--manifest', str(manifest_path),
+                    '--output-dir', output_dir,
+                    tmpdir=tmpdir,
+                )
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(payload['jobs_requested'], 1)
+            self.assertEqual(payload['jobs_succeeded'], 1)
+            self.assertEqual(payload['jobs_failed'], 0)
+            self.assertTrue(Path(payload['results'][0]['output_path']).exists())
+
     def test_parser_uses_settings_defaults_for_full_recommend_and_serve_api(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             env = self._env_for_tmpdir(tmpdir)
