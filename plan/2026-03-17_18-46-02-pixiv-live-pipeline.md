@@ -51,7 +51,7 @@ complexity: complex
 - [x] 已生成第四批 plan 与 Issue CSV
 - [x] 已实现 candidate artist hydration
 - [x] 已实现 live recommendation pipeline
-- [ ] 已实现 CLI full-recommend 命令
+- [x] 已实现 CLI full-recommend 命令
 - [ ] 全量 unittest 与 compileall 通过
 
 ## Risks / Blockers
