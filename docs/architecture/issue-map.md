@@ -45,3 +45,10 @@
 - `PIPE-001`: live recommendation pipeline
 - `APP-003`: CLI full-recommend
 - `TEST-004`: batch regression
+
+## Batch 5
+- `DOCS-005`: 第五批 quality-guardrails 计划资产
+- `CORE-004`: seed user 偏好持久化
+- `RANK-002`: quality / AI / R18 guardrails
+- `APP-004`: CLI 过滤参数
+- `TEST-005`: batch regression

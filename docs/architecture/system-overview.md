@@ -16,14 +16,15 @@
 当前 repo 已实现：
 - OAuth refresh / token cache / token coordinator
 - Pixiv App API client（following / user detail / user illusts / illust detail / user related / illust related）
-- following sync、followed-artist hydration、taste profile、candidate retrieval、heuristic rank
-- CLI：`init-db` / `show-config` / `dry-run-recommend` / `hydrate-followed-illusts` / `build-profile` / `recommend-from-store`
+- following sync、followed-artist hydration、candidate hydration、taste profile、candidate retrieval、heuristic rank
+- live pipeline：`following -> hydration -> profile -> candidate -> candidate hydration -> rank`
+- CLI：`init-db` / `show-config` / `dry-run-recommend` / `hydrate-followed-illusts` / `build-profile` / `recommend-from-store` / `full-recommend`
 
 ## Current implementation focus
-当前推进到第 4 批：
-- 把以上分步能力串成 live recommendation pipeline
-- 增加 candidate artist hydration
-- 输出一次执行即可获得 artist uid 列表的 `full-recommend` CLI 闭环
+当前推进到第 5 批：
+- 保持 seed-user 偏好（allow AI / allow R18）
+- 为 rank/full-recommend 增加 quality guardrails
+- 进一步减少低质量与不符合偏好的候选
 
 ## Module map
 - `src/pixiv_artist_recsys/config.py`: 配置与路径
@@ -35,8 +36,8 @@
 - `src/pixiv_artist_recsys/ingest/`: following / hydration
 - `src/pixiv_artist_recsys/profile/`: taste profile
 - `src/pixiv_artist_recsys/candidate/`: related-based retrieval
-- `src/pixiv_artist_recsys/rank/`: heuristic artist rank
-- `src/pixiv_artist_recsys/pipeline/`: dry-run pipeline + upcoming live orchestration
+- `src/pixiv_artist_recsys/rank/`: heuristic artist rank + upcoming quality guardrails
+- `src/pixiv_artist_recsys/pipeline/`: dry-run pipeline + live orchestration
 - `src/pixiv_artist_recsys/cli.py`: 本地命令入口
 
 ## Near-term roadmap
@@ -44,5 +45,6 @@
 - Phase 2: token / pixiv client / following ingest ✅
 - Phase 3: followings ingest + artist profile ✅
 - Phase 4: candidate retrieval + ranking ✅
-- Phase 5: full live pipeline（当前进行中）
-- Phase 6: proxy/failover + feedback loop
+- Phase 5: full live pipeline ✅
+- Phase 6: quality guardrails（当前进行中）
+- Phase 7: proxy/failover + feedback loop
