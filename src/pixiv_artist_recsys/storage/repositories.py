@@ -263,3 +263,29 @@ class RecommendationRepository:
         for artist_id in artists:
             result.append((artist_id, self.fetch_artist_tags(artist_user_id=artist_id)))
         return result
+
+    def replace_artist_candidates(self, *, seed_user_id: int, candidates: list[tuple[int, str, str, float, str]]) -> None:
+        with self.database.connect() as conn:
+            conn.execute("DELETE FROM artist_candidates WHERE seed_user_id = ?", (seed_user_id,))
+            conn.executemany(
+                "INSERT INTO artist_candidates (seed_user_id, candidate_user_id, source_type, source_key, weight, detail) VALUES (?, ?, ?, ?, ?, ?)",
+                [(seed_user_id, candidate_user_id, source_type, source_key, float(weight), detail) for candidate_user_id, source_type, source_key, weight, detail in candidates],
+            )
+
+    def fetch_artist_candidates(self, *, seed_user_id: int) -> list[tuple[int, str, str, float, str]]:
+        with self.database.connect() as conn:
+            rows = conn.execute(
+                "SELECT candidate_user_id, source_type, source_key, weight, detail FROM artist_candidates WHERE seed_user_id = ? ORDER BY candidate_user_id ASC, weight DESC",
+                (seed_user_id,),
+            ).fetchall()
+        return [(int(r['candidate_user_id']), str(r['source_type']), str(r['source_key']), float(r['weight']), str(r['detail'])) for r in rows]
+
+    def fetch_artist(self, *, artist_user_id: int) -> Artist | None:
+        with self.database.connect() as conn:
+            row = conn.execute(
+                "SELECT user_id, name, account, is_followed, profile_image_url FROM artists WHERE user_id = ?",
+                (artist_user_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return Artist(user_id=int(row['user_id']), name=str(row['name']), account=str(row['account']), is_followed=bool(row['is_followed']), profile_image_url=str(row['profile_image_url']))

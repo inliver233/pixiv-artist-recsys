@@ -12,6 +12,8 @@ USER_FOLLOWING_PATH = "/v1/user/following"
 USER_DETAIL_PATH = "/v1/user/detail"
 USER_ILLUSTS_PATH = "/v1/user/illusts"
 ILLUST_DETAIL_PATH = "/v1/illust/detail"
+USER_RELATED_PATH = "/v1/user/related"
+ILLUST_RELATED_PATH = "/v2/illust/related"
 
 
 class PixivAppApiError(RuntimeError):
@@ -56,6 +58,18 @@ class PixivAppApiClient:
         self.base_url = base_url.rstrip('/')
         self.accept_language = accept_language
 
+
+    def fetch_user_related(self, *, seed_user_id: int, offset: int | None = None) -> PagedResult[PixivUserSummary]:
+        payload = self._get_json(USER_RELATED_PATH, params={'seed_user_id': seed_user_id, 'offset': offset})
+        previews = payload.get('user_previews') if isinstance(payload, dict) else None
+        items = [self._parse_user_preview(item) for item in previews or []]
+        return PagedResult(items=items, next_url=payload.get('next_url') if isinstance(payload, dict) else None)
+
+    def fetch_illust_related(self, *, illust_id: int) -> PagedResult[PixivIllustSummary]:
+        payload = self._get_json(ILLUST_RELATED_PATH, params={'illust_id': illust_id})
+        illusts = payload.get('illusts') if isinstance(payload, dict) else None
+        items = [self._parse_illust_summary(item) for item in illusts or []]
+        return PagedResult(items=items, next_url=payload.get('next_url') if isinstance(payload, dict) else None)
     def fetch_following_users(self, *, user_id: int, restrict: str = 'public', offset: int | None = None) -> PagedResult[PixivUserSummary]:
         payload = self._get_json(USER_FOLLOWING_PATH, params={'user_id': user_id, 'restrict': restrict, 'offset': offset})
         previews = payload.get('user_previews') if isinstance(payload, dict) else None
