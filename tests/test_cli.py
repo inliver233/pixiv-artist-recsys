@@ -161,6 +161,42 @@ class CLITests(unittest.TestCase):
             self.assertEqual(len(payload['proxies']), 2)
             self.assertTrue(payload['allow_direct_fallback'])
 
+    def test_record_feedback_and_show_feedback_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = self._repo(tmpdir)
+            repo.upsert_seed_user(SeedUser(user_id=7, refresh_token_ref='masked:token'))
+            repo.upsert_artist(Artist(user_id=3001, name='feedback-artist'))
+            repo.upsert_illust(Illust(illust_id=93001, user_id=3001, title='feedback-illust'))
+            repo.replace_illust_tags(illust_id=93001, tags=['gore', 'blue hair'])
+
+            exit_code, payload = self._run_main_inprocess(
+                'record-feedback',
+                '--seed-user-id', '7',
+                '--artist-user-id', '3001',
+                '--action', 'block',
+                '--source-run-id', 'run-feedback',
+                tmpdir=tmpdir,
+            )
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(payload['blocked_artist_ids'], [3001])
+            self.assertIn('gore', [item['tag'] for item in payload['negative_tags']])
+
+            exit_code, payload = self._run_main_inprocess('show-feedback-profile', '--seed-user-id', '7', tmpdir=tmpdir)
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(payload['blocked_artist_ids'], [3001])
+            self.assertTrue(payload['negative_tags'])
+
+    def test_show_run_audit_outputs_payload(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = self._repo(tmpdir)
+            repo.upsert_run_audit(run_id='run-audit-1', seed_user_id=7, summary={'candidate': {'candidate_count': 3}, 'ranked': {'artist_user_ids': [2001]}})
+
+            exit_code, payload = self._run_main_inprocess('show-run-audit', '--run-id', 'run-audit-1', tmpdir=tmpdir)
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(payload['run_id'], 'run-audit-1')
+            self.assertEqual(payload['audit']['candidate']['candidate_count'], 3)
+
     def test_dry_run_recommend_outputs_placeholder_artist(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             result = self._run_cli("dry-run-recommend", "--seed-user-id", "11", tmpdir=tmpdir)

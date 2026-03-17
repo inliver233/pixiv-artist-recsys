@@ -8,6 +8,7 @@ from dataclasses import asdict
 from .auth import AccessTokenCache, PixivOAuthService, PixivTokenCoordinator
 from .auth.models import PixivTokenRecord
 from .config import load_settings
+from .feedback import FeedbackService
 from .ingest import ArtistIllustHydrationService
 from .pipeline import LiveRecommendationPipeline, LiveRecommendationRequest, RecommendationPipeline, RecommendationRequest
 from .pixiv import CoordinatorBackedAccessTokenProvider, PixivAppApiClient, StaticAccessTokenProvider
@@ -85,6 +86,21 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("show-config", help="Print resolved local settings")
     sub.add_parser("show-proxy-state", help="Print proxy pool configuration and health snapshot")
 
+    feedback = sub.add_parser("record-feedback", help="Record follow/dislike/block feedback for an artist")
+    feedback.add_argument("--seed-user-id", type=int, required=True)
+    feedback.add_argument("--artist-user-id", type=int, required=True)
+    feedback.add_argument("--action", choices=["follow", "dislike", "block"], required=True)
+    feedback.add_argument("--source-run-id", default="")
+    feedback.add_argument("--note", default="")
+    feedback.add_argument("--top-n-tags", type=int, default=20)
+
+    feedback_profile = sub.add_parser("show-feedback-profile", help="Show derived negative profile from recorded feedback")
+    feedback_profile.add_argument("--seed-user-id", type=int, required=True)
+    feedback_profile.add_argument("--top-n-tags", type=int, default=20)
+
+    run_audit = sub.add_parser("show-run-audit", help="Show stored audit payload for a recommendation run")
+    run_audit.add_argument("--run-id", required=True)
+
     dry = sub.add_parser("dry-run-recommend", help="Run placeholder recommendation pipeline")
     dry.add_argument("--seed-user-id", type=int, default=1)
     dry.add_argument("--refresh-token-ref", default="masked:token")
@@ -156,6 +172,61 @@ def cmd_show_proxy_state() -> int:
         "enabled": proxy_pool is not None,
         "proxies": [asdict(snapshot) for snapshot in proxy_pool.snapshot()] if proxy_pool is not None else [],
         "allow_direct_fallback": bool(proxy_pool.policy.allow_direct_fallback) if proxy_pool is not None else True,
+    }
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_record_feedback(
+    *,
+    seed_user_id: int,
+    artist_user_id: int,
+    action: str,
+    source_run_id: str,
+    note: str,
+    top_n_tags: int,
+) -> int:
+    repository = _build_repository()
+    summary = FeedbackService(repository=repository).record_feedback(
+        seed_user_id=seed_user_id,
+        artist_user_id=artist_user_id,
+        action=action,
+        source_run_id=source_run_id,
+        note=note,
+        top_n_tags=top_n_tags,
+    )
+    payload = {
+        "seed_user_id": summary.seed_user_id,
+        "artist_user_id": artist_user_id,
+        "action": action,
+        "event_count": summary.event_count,
+        "negative_tags": [{"tag": tag, "weight": weight} for tag, weight in summary.negative_tags],
+        "disliked_artist_ids": summary.disliked_artist_ids,
+        "blocked_artist_ids": summary.blocked_artist_ids,
+    }
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_show_feedback_profile(*, seed_user_id: int, top_n_tags: int) -> int:
+    repository = _build_repository()
+    summary = FeedbackService(repository=repository).build_negative_profile(seed_user_id=seed_user_id, top_n_tags=top_n_tags)
+    payload = {
+        "seed_user_id": summary.seed_user_id,
+        "event_count": summary.event_count,
+        "negative_tags": [{"tag": tag, "weight": weight} for tag, weight in summary.negative_tags],
+        "disliked_artist_ids": summary.disliked_artist_ids,
+        "blocked_artist_ids": summary.blocked_artist_ids,
+    }
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_show_run_audit(*, run_id: str) -> int:
+    repository = _build_repository()
+    payload = {
+        "run_id": run_id,
+        "audit": repository.fetch_run_audit(run_id=run_id),
     }
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0
@@ -365,6 +436,19 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_show_config()
         if args.command == "show-proxy-state":
             return cmd_show_proxy_state()
+        if args.command == "record-feedback":
+            return cmd_record_feedback(
+                seed_user_id=args.seed_user_id,
+                artist_user_id=args.artist_user_id,
+                action=args.action,
+                source_run_id=args.source_run_id,
+                note=args.note,
+                top_n_tags=args.top_n_tags,
+            )
+        if args.command == "show-feedback-profile":
+            return cmd_show_feedback_profile(seed_user_id=args.seed_user_id, top_n_tags=args.top_n_tags)
+        if args.command == "show-run-audit":
+            return cmd_show_run_audit(run_id=args.run_id)
         if args.command == "dry-run-recommend":
             return cmd_dry_run_recommend(args.seed_user_id, args.refresh_token_ref, args.max_results)
         if args.command == "hydrate-followed-illusts":
