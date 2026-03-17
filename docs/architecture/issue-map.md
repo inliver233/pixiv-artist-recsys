@@ -56,3 +56,11 @@
 - `PROXY-001`: proxy pool + failover transport
 - `APP-005`: CLI proxy state / integration
 - `TEST-006`: batch regression
+
+## Batch 7
+- `DOCS-007`: 第七批 feedback/audit 计划资产
+- `FEED-001`: feedback events + negative profile
+- `AUDIT-001`: recommendation run audit persistence
+- `RANK-003`: negative feedback suppression
+- `APP-006`: CLI feedback/audit 查询
+- `TEST-007`: batch regression
