@@ -4,7 +4,7 @@ import json
 from dataclasses import asdict
 
 from ..auth.models import PixivTokenRecord
-from ..domain.models import Artist, RecommendationRun, SeedUser
+from ..domain.models import Artist, Illust, RecommendationRun, SeedUser
 from .database import SQLiteDatabase
 
 
@@ -142,3 +142,85 @@ class RecommendationRepository:
                 (seed_user_id,),
             ).fetchall()
         return [int(row['artist_user_id']) for row in rows]
+
+    def upsert_illust(self, illust: Illust) -> None:
+        with self.database.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO illusts (illust_id, user_id, title, create_date, total_bookmarks, total_view, total_comments, ai_type, x_restrict)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(illust_id) DO UPDATE SET
+                    user_id=excluded.user_id,
+                    title=excluded.title,
+                    create_date=excluded.create_date,
+                    total_bookmarks=excluded.total_bookmarks,
+                    total_view=excluded.total_view,
+                    total_comments=excluded.total_comments,
+                    ai_type=excluded.ai_type,
+                    x_restrict=excluded.x_restrict
+                """,
+                (
+                    illust.illust_id,
+                    illust.user_id,
+                    illust.title,
+                    illust.create_date,
+                    illust.total_bookmarks,
+                    illust.total_view,
+                    illust.total_comments,
+                    illust.ai_type,
+                    illust.x_restrict,
+                ),
+            )
+
+    def replace_illust_tags(self, *, illust_id: int, tags: list[str]) -> None:
+        tags_clean = sorted({str(tag).strip() for tag in tags if str(tag).strip()})
+        with self.database.connect() as conn:
+            conn.execute("DELETE FROM illust_tags WHERE illust_id = ?", (illust_id,))
+            conn.executemany(
+                "INSERT INTO illust_tags (illust_id, tag) VALUES (?, ?)",
+                [(illust_id, tag) for tag in tags_clean],
+            )
+
+    def list_followed_artists(self, *, seed_user_id: int) -> list[Artist]:
+        with self.database.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT a.user_id, a.name, a.account, a.is_followed, a.profile_image_url
+                FROM artists a
+                JOIN seed_user_following_artists s ON s.artist_user_id = a.user_id
+                WHERE s.seed_user_id = ?
+                ORDER BY a.user_id
+                """,
+                (seed_user_id,),
+            ).fetchall()
+        return [Artist(user_id=int(r['user_id']), name=str(r['name']), account=str(r['account']), is_followed=bool(r['is_followed']), profile_image_url=str(r['profile_image_url'])) for r in rows]
+
+    def list_illust_ids_for_artist(self, *, artist_user_id: int) -> list[int]:
+        with self.database.connect() as conn:
+            rows = conn.execute(
+                "SELECT illust_id FROM illusts WHERE user_id = ? ORDER BY total_bookmarks DESC, illust_id DESC",
+                (artist_user_id,),
+            ).fetchall()
+        return [int(r['illust_id']) for r in rows]
+
+    def fetch_artist_tags(self, *, artist_user_id: int) -> list[str]:
+        with self.database.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT t.tag
+                FROM illust_tags t
+                JOIN illusts i ON i.illust_id = t.illust_id
+                WHERE i.user_id = ?
+                ORDER BY t.tag
+                """,
+                (artist_user_id,),
+            ).fetchall()
+        return [str(r['tag']) for r in rows]
+
+    def fetch_illusts_for_artist(self, *, artist_user_id: int) -> list[Illust]:
+        with self.database.connect() as conn:
+            rows = conn.execute(
+                "SELECT illust_id, user_id, title, create_date, total_bookmarks, total_view, total_comments, ai_type, x_restrict FROM illusts WHERE user_id = ? ORDER BY total_bookmarks DESC, illust_id DESC",
+                (artist_user_id,),
+            ).fetchall()
+        return [Illust(illust_id=int(r['illust_id']), user_id=int(r['user_id']), title=str(r['title']), create_date=str(r['create_date']), total_bookmarks=int(r['total_bookmarks']), total_view=int(r['total_view']), total_comments=int(r['total_comments']), ai_type=int(r['ai_type']), x_restrict=int(r['x_restrict'])) for r in rows]

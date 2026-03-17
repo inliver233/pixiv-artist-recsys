@@ -59,6 +59,14 @@ SCHEMA_STATEMENTS = [
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS illust_tags (
+        illust_id INTEGER NOT NULL,
+        tag TEXT NOT NULL,
+        PRIMARY KEY (illust_id, tag),
+        FOREIGN KEY(illust_id) REFERENCES illusts(illust_id)
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS artist_candidates (
         seed_user_id INTEGER NOT NULL,
         candidate_user_id INTEGER NOT NULL,
