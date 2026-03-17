@@ -20,7 +20,6 @@
 7. `RANK-*`: artist quality scoring / diversity / explanation
 8. `FEED-*`: feedback loop / recommendation audit trail
 
-
 ## Batch 2
 - `DOCS-002`: 第二批 auth/client/ingest 计划与 issue 资产
 - `AUTH-001`: OAuth refresh service 与 token persistence
@@ -28,7 +27,6 @@
 - `PIXIV-001`: Pixiv App API client 与 DTO
 - `INGEST-001`: following sync service
 - `TEST-002`: batch regression
-
 
 ## Batch 3
 - `DOCS-003`: 第三批 profile/candidate/rank 计划资产
@@ -52,3 +50,9 @@
 - `RANK-002`: quality / AI / R18 guardrails
 - `APP-004`: CLI 过滤参数
 - `TEST-005`: batch regression
+
+## Batch 6
+- `DOCS-006`: 第六批 proxy/failover 计划资产
+- `PROXY-001`: proxy pool + failover transport
+- `APP-005`: CLI proxy state / integration
+- `TEST-006`: batch regression
