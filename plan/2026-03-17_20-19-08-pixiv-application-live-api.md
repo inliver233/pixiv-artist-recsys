@@ -47,11 +47,11 @@ complexity: complex
 - none：继续使用本地实现与 fake client 测试
 
 ## Acceptance Checklist
-- [ ] 已生成第十批 plan 与 Issue CSV
-- [ ] 已实现统一 application facade
-- [ ] 已实现 API live hydrate/profile/full-recommend 端点
-- [ ] 已完成 CLI 对 facade 的复用重构
-- [ ] 全量 unittest 与 compileall 通过
+- [x] 已生成第十批 plan 与 Issue CSV
+- [x] 已实现统一 application facade
+- [x] 已实现 API live hydrate/profile/full-recommend 端点
+- [x] 已完成 CLI 对 facade 的复用重构
+- [x] 全量 unittest 与 compileall 通过
 
 ## Risks / Blockers
 - 应用层与 CLI/API 复用时需避免打破既有测试 patch 点。
