@@ -54,7 +54,7 @@ complexity: complex
 - [x] 已实现 feedback events / negative profile
 - [x] 已实现 run audit persistence
 - [x] 已实现 negative feedback suppression 与 CLI 查询
-- [ ] 全量 unittest 与 compileall 通过
+- [x] 全量 unittest 与 compileall 通过
 
 ## Risks / Blockers
 - 当前 negative profile 仍是规则版，后续还需引入更细粒度画像。
