@@ -52,7 +52,7 @@ complexity: complex
 - [ ] 已生成第三批 plan 与 Issue CSV
 - [ ] 已实现 followed-artist illust hydration 与标签入库
 - [ ] 已实现 profile build 与 candidate retrieval
-- [ ] 已实现 heuristic artist rank 与 CLI 命令
+- [x] 已实现 heuristic artist rank 与 CLI 命令
 - [ ] 全量 unittest 与 compileall 通过
 
 ## Risks / Blockers
