@@ -22,6 +22,15 @@ SRC = ROOT / "src"
 
 
 class FakeHydrationClient:
+    def fetch_following_users(self, *, user_id: int, restrict: str = 'public', offset: int | None = None):
+        return PagedResult(
+            items=[
+                PixivUserSummary(user_id=1001, name='artist-1', account='artist_1'),
+                PixivUserSummary(user_id=1002, name='artist-2', account='artist_2'),
+            ],
+            next_url=None,
+        )
+
     def fetch_user_illusts(self, *, user_id: int, type_: str = 'illust', offset: int | None = None):
         return PagedResult(items=[PixivIllustSummary(illust_id=user_id * 10 + 1, user_id=user_id, title=f'illust-{user_id}')], next_url=None)
 
