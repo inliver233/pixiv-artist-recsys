@@ -4,6 +4,7 @@ import argparse
 import json
 from pathlib import Path
 
+from .api import serve_api
 from .config import load_settings
 from .feedback import FeedbackService
 from .ingest import ArtistIllustHydrationService
@@ -45,12 +46,16 @@ def _build_pixiv_client(
 
 
 def build_parser() -> argparse.ArgumentParser:
+    settings = load_settings()
     parser = argparse.ArgumentParser(prog="pixiv_artist_recsys")
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("init-db", help="Initialize local sqlite database")
     sub.add_parser("show-config", help="Print resolved local settings")
     sub.add_parser("show-proxy-state", help="Print proxy pool configuration and health snapshot")
+    serve = sub.add_parser("serve-api", help="Run local JSON API server")
+    serve.add_argument("--host", default=settings.api.host)
+    serve.add_argument("--port", type=int, default=settings.api.port)
 
     feedback = sub.add_parser("record-feedback", help="Record follow/dislike/block feedback for an artist")
     feedback.add_argument("--seed-user-id", type=int, required=True)
@@ -77,7 +82,7 @@ def build_parser() -> argparse.ArgumentParser:
     dry = sub.add_parser("dry-run-recommend", help="Run placeholder recommendation pipeline")
     dry.add_argument("--seed-user-id", type=int, default=1)
     dry.add_argument("--refresh-token-ref", default="masked:token")
-    dry.add_argument("--max-results", type=int, default=5)
+    dry.add_argument("--max-results", type=int, default=settings.recommendation.max_results)
 
     hydrate = sub.add_parser("hydrate-followed-illusts", help="Hydrate followed artists' representative illusts into local sqlite")
     hydrate.add_argument("--seed-user-id", type=int, required=True)
@@ -94,8 +99,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     recommend = sub.add_parser("recommend-from-store", help="Rank locally stored candidate artists")
     recommend.add_argument("--seed-user-id", type=int, required=True)
-    recommend.add_argument("--max-results", type=int, default=20)
-    recommend.add_argument("--diversity-per-tag", type=int, default=2)
+    recommend.add_argument("--max-results", type=int, default=settings.recommendation.max_results)
+    recommend.add_argument("--diversity-per-tag", type=int, default=settings.recommendation.diversity_per_tag)
 
     full = sub.add_parser("full-recommend", help="Run the full live Pixiv recommendation pipeline")
     full.add_argument("--seed-user-id", type=int, required=True)
@@ -109,12 +114,12 @@ def build_parser() -> argparse.ArgumentParser:
     full.add_argument("--max-related-per-illust", type=int, default=5)
     full.add_argument("--top-n-tags", type=int, default=20)
     full.add_argument("--top-n-pairs", type=int, default=20)
-    full.add_argument("--max-results", type=int, default=20)
-    full.add_argument("--allow-ai", action="store_true")
-    full.add_argument("--allow-r18", action="store_true")
-    full.add_argument("--min-bookmarks", type=int, default=30)
-    full.add_argument("--min-score", type=float, default=0.5)
-    full.add_argument("--diversity-per-tag", type=int, default=2)
+    full.add_argument("--max-results", type=int, default=settings.recommendation.max_results)
+    full.add_argument("--allow-ai", action=argparse.BooleanOptionalAction, default=settings.recommendation.allow_ai)
+    full.add_argument("--allow-r18", action=argparse.BooleanOptionalAction, default=settings.recommendation.allow_r18)
+    full.add_argument("--min-bookmarks", type=int, default=settings.recommendation.min_bookmarks)
+    full.add_argument("--min-score", type=float, default=settings.recommendation.min_score)
+    full.add_argument("--diversity-per-tag", type=int, default=settings.recommendation.diversity_per_tag)
     full.add_argument("--stop-word", action="append", default=[])
 
     return parser
@@ -127,16 +132,12 @@ def cmd_init_db() -> int:
 
 
 def cmd_show_config() -> int:
-    settings = load_settings()
-    settings.ensure_directories()
-    payload = {
-        "mode": settings.mode.value,
-        "repo_root": str(settings.paths.repo_root),
-        "data_dir": str(settings.paths.data_dir),
-        "runtime_dir": str(settings.paths.runtime_dir),
-        "db_path": str(settings.storage.sqlite_path),
-        "max_results": settings.recommendation.max_results,
-    }
+    runtime = _build_runtime()
+    payload = runtime.settings_payload()
+    payload["repo_root"] = payload["paths"]["repo_root"]
+    payload["data_dir"] = payload["paths"]["data_dir"]
+    payload["runtime_dir"] = payload["paths"]["runtime_dir"]
+    payload["db_path"] = payload["storage"]["sqlite_path"]
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0
 
@@ -144,6 +145,19 @@ def cmd_show_config() -> int:
 def cmd_show_proxy_state() -> int:
     payload = _build_runtime().proxy_state_payload()
     print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_serve_api(*, host: str, port: int) -> int:
+    runtime = _build_runtime()
+    payload = {
+        "starting": True,
+        "host": host,
+        "port": port,
+        "db_path": str(runtime.db_path),
+    }
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    serve_api(runtime=runtime, host=host, port=port)
     return 0
 
 
@@ -462,6 +476,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_show_config()
         if args.command == "show-proxy-state":
             return cmd_show_proxy_state()
+        if args.command == "serve-api":
+            return cmd_serve_api(host=args.host, port=args.port)
         if args.command == "record-feedback":
             return cmd_record_feedback(
                 seed_user_id=args.seed_user_id,

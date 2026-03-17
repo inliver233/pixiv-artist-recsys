@@ -146,6 +146,34 @@ class CLITests(unittest.TestCase):
             result = self._run_cli("show-config", tmpdir=tmpdir)
             payload = json.loads(result.stdout)
             self.assertIn("db_path", payload)
+            self.assertIn("api", payload)
+            self.assertIn("recommendation", payload)
+
+    def test_parser_uses_settings_defaults_for_full_recommend_and_serve_api(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env = self._env_for_tmpdir(tmpdir)
+            env['PIXIV_ARTIST_RECSYS_API_HOST'] = '0.0.0.0'
+            env['PIXIV_ARTIST_RECSYS_API_PORT'] = '9911'
+            env['PIXIV_ARTIST_RECSYS_MAX_RESULTS'] = '17'
+            env['PIXIV_ARTIST_RECSYS_ALLOW_AI'] = 'yes'
+            env['PIXIV_ARTIST_RECSYS_ALLOW_R18'] = 'yes'
+            env['PIXIV_ARTIST_RECSYS_MIN_BOOKMARKS'] = '77'
+            env['PIXIV_ARTIST_RECSYS_MIN_SCORE'] = '1.25'
+            env['PIXIV_ARTIST_RECSYS_DIVERSITY_PER_TAG'] = '4'
+
+            with patch.dict(os.environ, env, clear=False):
+                parser = cli.build_parser()
+                serve_args = parser.parse_args(['serve-api'])
+                full_args = parser.parse_args(['full-recommend', '--seed-user-id', '7'])
+
+            self.assertEqual(serve_args.host, '0.0.0.0')
+            self.assertEqual(serve_args.port, 9911)
+            self.assertEqual(full_args.max_results, 17)
+            self.assertTrue(full_args.allow_ai)
+            self.assertTrue(full_args.allow_r18)
+            self.assertEqual(full_args.min_bookmarks, 77)
+            self.assertEqual(full_args.min_score, 1.25)
+            self.assertEqual(full_args.diversity_per_tag, 4)
 
     def test_show_proxy_state_outputs_proxy_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -160,6 +188,24 @@ class CLITests(unittest.TestCase):
             self.assertTrue(payload['enabled'])
             self.assertEqual(len(payload['proxies']), 2)
             self.assertTrue(payload['allow_direct_fallback'])
+
+    def test_serve_api_invokes_server_with_resolved_host_and_port(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            stdout = io.StringIO()
+            with patch.dict(os.environ, self._env_for_tmpdir(tmpdir), clear=False):
+                with patch('pixiv_artist_recsys.cli.serve_api') as mock_serve_api:
+                    with redirect_stdout(stdout):
+                        exit_code = cli.main(['serve-api', '--host', '127.0.0.1', '--port', '8765'])
+
+            payload = json.loads(stdout.getvalue())
+            self.assertEqual(exit_code, 0)
+            self.assertTrue(payload['starting'])
+            self.assertEqual(payload['host'], '127.0.0.1')
+            self.assertEqual(payload['port'], 8765)
+            mock_serve_api.assert_called_once()
+            kwargs = mock_serve_api.call_args.kwargs
+            self.assertEqual(kwargs['host'], '127.0.0.1')
+            self.assertEqual(kwargs['port'], 8765)
 
     def test_record_feedback_and_show_feedback_profile(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
