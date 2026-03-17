@@ -49,7 +49,7 @@ complexity: complex
 - [x] 已生成第六批 plan 与 Issue CSV
 - [x] 已实现 proxy pool / failover transport
 - [x] 已实现 CLI proxy state / build chain integration
-- [ ] 全量 unittest 与 compileall 通过
+- [x] 全量 unittest 与 compileall 通过
 
 ## Risks / Blockers
 - 当前 proxy 状态仅在单进程内维护，跨进程不会共享。
