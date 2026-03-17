@@ -38,3 +38,10 @@
 - `RANK-001`: heuristic artist ranking
 - `APP-002`: CLI 扩展
 - `TEST-003`: batch regression
+
+## Batch 4
+- `DOCS-004`: 第四批 live-pipeline 计划资产
+- `INGEST-003`: candidate artist hydration
+- `PIPE-001`: live recommendation pipeline
+- `APP-003`: CLI full-recommend
+- `TEST-004`: batch regression

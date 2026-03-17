@@ -12,24 +12,37 @@
 6. Rank: artist-level quality + taste match + novelty + diversity
 7. Feedback: 记录 follow / dislike / block 回流画像
 
-## First implementation boundary
-当前 repo 先实现 4 层骨架：
-- 本地设置与项目目录管理
-- 领域模型与 SQLite schema
-- 服务接口与 recommendation orchestrator
-- CLI dry-run / smoke tests
+## Implemented baseline
+当前 repo 已实现：
+- OAuth refresh / token cache / token coordinator
+- Pixiv App API client（following / user detail / user illusts / illust detail / user related / illust related）
+- following sync、followed-artist hydration、taste profile、candidate retrieval、heuristic rank
+- CLI：`init-db` / `show-config` / `dry-run-recommend` / `hydrate-followed-illusts` / `build-profile` / `recommend-from-store`
+
+## Current implementation focus
+当前推进到第 4 批：
+- 把以上分步能力串成 live recommendation pipeline
+- 增加 candidate artist hydration
+- 输出一次执行即可获得 artist uid 列表的 `full-recommend` CLI 闭环
 
 ## Module map
 - `src/pixiv_artist_recsys/config.py`: 配置与路径
 - `src/pixiv_artist_recsys/domain/`: 核心实体和值对象
 - `src/pixiv_artist_recsys/storage/`: SQLite schema / repository
-- `src/pixiv_artist_recsys/services/`: auth/proxy/profile/candidate/rank 等端口
-- `src/pixiv_artist_recsys/pipeline/`: recommendation pipeline
+- `src/pixiv_artist_recsys/services/`: 早期 dry-run ports / stubs
+- `src/pixiv_artist_recsys/auth/`: OAuth refresh / token cache / coordinator
+- `src/pixiv_artist_recsys/pixiv/`: Pixiv App API client / DTO
+- `src/pixiv_artist_recsys/ingest/`: following / hydration
+- `src/pixiv_artist_recsys/profile/`: taste profile
+- `src/pixiv_artist_recsys/candidate/`: related-based retrieval
+- `src/pixiv_artist_recsys/rank/`: heuristic artist rank
+- `src/pixiv_artist_recsys/pipeline/`: dry-run pipeline + upcoming live orchestration
 - `src/pixiv_artist_recsys/cli.py`: 本地命令入口
 
 ## Near-term roadmap
-- Phase 1: dry-run skeleton
-- Phase 2: token / pixiv client / following ingest 真实实现（当前进行中）
-- Phase 3: followings ingest + artist profile
-- Phase 4: candidate retrieval + ranking
-- Phase 5: feedback loop + metrics
+- Phase 1: dry-run skeleton ✅
+- Phase 2: token / pixiv client / following ingest ✅
+- Phase 3: followings ingest + artist profile ✅
+- Phase 4: candidate retrieval + ranking ✅
+- Phase 5: full live pipeline（当前进行中）
+- Phase 6: proxy/failover + feedback loop
