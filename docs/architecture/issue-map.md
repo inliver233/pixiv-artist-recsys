@@ -28,3 +28,13 @@
 - `PIXIV-001`: Pixiv App API client 与 DTO
 - `INGEST-001`: following sync service
 - `TEST-002`: batch regression
+
+
+## Batch 3
+- `DOCS-003`: 第三批 profile/candidate/rank 计划资产
+- `INGEST-002`: followed-artist illust hydration + tags
+- `PROFILE-001`: taste profile build
+- `CAND-001`: related-user / related-illust candidate retrieval
+- `RANK-001`: heuristic artist ranking
+- `APP-002`: CLI 扩展
+- `TEST-003`: batch regression
