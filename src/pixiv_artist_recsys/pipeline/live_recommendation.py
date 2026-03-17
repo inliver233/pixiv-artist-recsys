@@ -24,6 +24,10 @@ class LiveRecommendationRequest:
     top_n_tags: int = 20
     top_n_pairs: int = 20
     max_results: int = 20
+    allow_ai: bool = False
+    allow_r18: bool = False
+    min_total_bookmarks: int = 30
+    min_score: float = 0.5
     persist_run: bool = True
     mode: str = 'live-heuristic'
 
@@ -59,6 +63,8 @@ class LiveRecommendationPipeline:
             seed_user_id=request.seed_user_id,
             refresh_token_ref=request.refresh_token_ref,
             restrict=request.restrict,
+            allow_ai=request.allow_ai,
+            allow_r18=request.allow_r18,
         )
         followed_hydration_result = self.hydration_service.hydrate_followed_artists(
             seed_user_id=request.seed_user_id,
@@ -81,6 +87,10 @@ class LiveRecommendationPipeline:
         ranked_result = self.rank_service.rank_from_store(
             seed_user_id=request.seed_user_id,
             max_results=request.max_results,
+            allow_ai=request.allow_ai,
+            allow_r18=request.allow_r18,
+            min_total_bookmarks=request.min_total_bookmarks,
+            min_score=request.min_score,
         )
 
         run = RecommendationRun(

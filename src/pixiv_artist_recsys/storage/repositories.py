@@ -232,6 +232,17 @@ class RecommendationRepository:
             ).fetchall()
         return [str(r['tag']) for r in rows]
 
+    def fetch_tags_for_illust_ids(self, *, illust_ids: list[int]) -> list[str]:
+        if not illust_ids:
+            return []
+        placeholders = ','.join(['?'] * len(illust_ids))
+        with self.database.connect() as conn:
+            rows = conn.execute(
+                f"SELECT tag FROM illust_tags WHERE illust_id IN ({placeholders}) ORDER BY tag",
+                tuple(illust_ids),
+            ).fetchall()
+        return [str(r['tag']) for r in rows]
+
     def fetch_illusts_for_artist(self, *, artist_user_id: int) -> list[Illust]:
         with self.database.connect() as conn:
             rows = conn.execute(

@@ -88,6 +88,8 @@ class LivePipelineTests(unittest.TestCase):
                     max_related_per_artist=2,
                     max_related_per_illust=2,
                     max_results=5,
+                    min_total_bookmarks=30,
+                    min_score=0.5,
                 )
             )
 
@@ -96,8 +98,7 @@ class LivePipelineTests(unittest.TestCase):
             self.assertEqual(result.profile_summary.artist_count, 2)
             self.assertEqual(result.candidate_result.candidate_count, 2)
             self.assertEqual(result.candidate_hydration_result.artists_processed, 2)
-            self.assertTrue(result.run.items)
-            self.assertEqual(result.run.items[0].artist.user_id, 2001)
+            self.assertEqual([item.artist.user_id for item in result.run.items], [2001])
             self.assertEqual(repo.count_rows('recommendation_runs'), 1)
             self.assertEqual(repo.count_rows('recommendation_items'), len(result.run.items))
             self.assertGreaterEqual(repo.count_rows('illusts'), 4)
