@@ -280,6 +280,14 @@ class RecommendationRepository:
             ).fetchall()
         return [(int(r['candidate_user_id']), str(r['source_type']), str(r['source_key']), float(r['weight']), str(r['detail'])) for r in rows]
 
+    def list_candidate_artist_ids(self, *, seed_user_id: int) -> list[int]:
+        with self.database.connect() as conn:
+            rows = conn.execute(
+                "SELECT DISTINCT candidate_user_id FROM artist_candidates WHERE seed_user_id = ? ORDER BY candidate_user_id ASC",
+                (seed_user_id,),
+            ).fetchall()
+        return [int(r['candidate_user_id']) for r in rows]
+
     def fetch_artist(self, *, artist_user_id: int) -> Artist | None:
         with self.database.connect() as conn:
             row = conn.execute(
