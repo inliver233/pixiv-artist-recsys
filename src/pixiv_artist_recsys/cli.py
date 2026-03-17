@@ -112,6 +112,10 @@ def build_parser() -> argparse.ArgumentParser:
     full.add_argument("--top-n-tags", type=int, default=20)
     full.add_argument("--top-n-pairs", type=int, default=20)
     full.add_argument("--max-results", type=int, default=20)
+    full.add_argument("--allow-ai", action="store_true")
+    full.add_argument("--allow-r18", action="store_true")
+    full.add_argument("--min-bookmarks", type=int, default=30)
+    full.add_argument("--min-score", type=float, default=0.5)
     full.add_argument("--stop-word", action="append", default=[])
 
     return parser
@@ -262,6 +266,10 @@ def cmd_full_recommend(
     top_n_tags: int,
     top_n_pairs: int,
     max_results: int,
+    allow_ai: bool,
+    allow_r18: bool,
+    min_bookmarks: int,
+    min_score: float,
     stop_words: list[str],
 ) -> int:
     repository = _build_repository()
@@ -284,6 +292,10 @@ def cmd_full_recommend(
             top_n_tags=top_n_tags,
             top_n_pairs=top_n_pairs,
             max_results=max_results,
+            allow_ai=allow_ai,
+            allow_r18=allow_r18,
+            min_total_bookmarks=min_bookmarks,
+            min_score=min_score,
         )
     )
     payload = {
@@ -291,6 +303,12 @@ def cmd_full_recommend(
         "mode": result.run.mode,
         "seed_user_id": result.run.seed_user_id,
         "recommended_artist_ids": [item.artist.user_id for item in result.run.items],
+        "filters": {
+            "allow_ai": allow_ai,
+            "allow_r18": allow_r18,
+            "min_bookmarks": min_bookmarks,
+            "min_score": min_score,
+        },
         "stats": {
             "following_synced": result.following_result.synced_count,
             "followed_illusts_upserted": result.followed_hydration_result.illusts_upserted,
@@ -359,6 +377,10 @@ def main(argv: list[str] | None = None) -> int:
                 top_n_tags=args.top_n_tags,
                 top_n_pairs=args.top_n_pairs,
                 max_results=args.max_results,
+                allow_ai=args.allow_ai,
+                allow_r18=args.allow_r18,
+                min_bookmarks=args.min_bookmarks,
+                min_score=args.min_score,
                 stop_words=args.stop_word,
             )
     except ValueError as exc:

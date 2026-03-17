@@ -226,15 +226,25 @@ class CLITests(unittest.TestCase):
                     '--followed-artist-limit', '1',
                     '--candidate-artist-limit', '1',
                     '--max-results', '5',
+                    '--allow-ai',
+                    '--min-bookmarks', '100',
+                    '--min-score', '1.0',
                     tmpdir=tmpdir,
                 )
 
             repo = self._repo(tmpdir)
+            seed_user = repo.fetch_seed_user(user_id=7)
             self.assertEqual(exit_code, 0)
             self.assertEqual(payload['seed_user_id'], 7)
-            self.assertEqual(payload['recommended_artist_ids'][0], 2001)
+            self.assertEqual(payload['filters']['allow_ai'], True)
+            self.assertEqual(payload['filters']['allow_r18'], False)
+            self.assertEqual(payload['filters']['min_bookmarks'], 100)
+            self.assertEqual(payload['filters']['min_score'], 1.0)
+            self.assertEqual(payload['recommended_artist_ids'], [2001])
             self.assertEqual(payload['stats']['candidate_count'], 2)
             self.assertTrue(payload['items'])
+            self.assertTrue(seed_user.allow_ai)
+            self.assertFalse(seed_user.allow_r18)
             self.assertEqual(repo.count_rows('recommendation_runs'), 1)
             self.assertEqual(repo.count_rows('recommendation_items'), len(payload['items']))
 
