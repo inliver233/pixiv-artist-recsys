@@ -64,3 +64,10 @@
 - `RANK-003`: negative feedback suppression
 - `APP-006`: CLI feedback/audit 查询
 - `TEST-007`: batch regression
+
+## Batch 8
+- `DOCS-008`: 第八批 runtime/diversity/export 计划资产
+- `CORE-005`: AppRuntime 装配层
+- `RANK-004`: diversity-aware ranking
+- `APP-007`: run list/export CLI + runtime 接入
+- `TEST-008`: batch regression

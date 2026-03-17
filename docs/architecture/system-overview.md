@@ -20,26 +20,26 @@
 - live pipeline：`following -> hydration -> profile -> candidate -> candidate hydration -> rank`
 - quality guardrails：allow AI / allow R18 / min bookmarks / min score
 - proxy/failover：proxy pool、cooldown、direct fallback、CLI proxy snapshot
-- CLI：`init-db` / `show-config` / `show-proxy-state` / `dry-run-recommend` / `hydrate-followed-illusts` / `build-profile` / `recommend-from-store` / `full-recommend`
+- feedback/audit：feedback events、negative profile、run audit、CLI feedback/audit 查询
 
 ## Current implementation focus
-当前推进到第 7 批：
-- 增加 feedback events 与 negative profile
-- 增加 run audit persistence
-- 在 rank 中接入 negative feedback suppression
-- 提供 CLI 查询与调试入口
+当前推进到第 8 批：
+- 建立统一 runtime 装配层，降低 CLI wiring 复杂度
+- 为 ranking 增加 diversity-aware 选择
+- 增加 run 列表与导出能力，提升审计与维护体验
 
 ## Module map
 - `src/pixiv_artist_recsys/config.py`: 配置与路径
-- `src/pixiv_artist_recsys/domain/`: 核心实体和值对象
-- `src/pixiv_artist_recsys/storage/`: SQLite schema / repository
+- `src/pixiv_artist_recsys/runtime.py`: upcoming unified runtime / wiring container
+- `src/pixiv_artist_recsys/storage/`: SQLite schema / repository / audit data
 - `src/pixiv_artist_recsys/auth/`: OAuth refresh / token cache / coordinator / transport
 - `src/pixiv_artist_recsys/pixiv/`: Pixiv App API client / DTO
 - `src/pixiv_artist_recsys/proxy/`: proxy pool / failover transport / env runtime
 - `src/pixiv_artist_recsys/ingest/`: following / hydration
 - `src/pixiv_artist_recsys/profile/`: taste profile
 - `src/pixiv_artist_recsys/candidate/`: related-based retrieval
-- `src/pixiv_artist_recsys/rank/`: heuristic artist rank + guardrails + upcoming feedback suppression
+- `src/pixiv_artist_recsys/feedback/`: feedback events / negative profile
+- `src/pixiv_artist_recsys/rank/`: heuristic rank + guardrails + diversity + feedback suppression
 - `src/pixiv_artist_recsys/pipeline/`: dry-run pipeline + live orchestration
 - `src/pixiv_artist_recsys/cli.py`: 本地命令入口
 
@@ -51,4 +51,5 @@
 - Phase 5: full live pipeline ✅
 - Phase 6: quality guardrails ✅
 - Phase 7: proxy/failover ✅
-- Phase 8: feedback loop + recommendation audit（当前进行中）
+- Phase 8: feedback loop + recommendation audit ✅
+- Phase 9: runtime/diversity/export（当前进行中）
