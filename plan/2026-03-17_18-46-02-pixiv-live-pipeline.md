@@ -52,7 +52,7 @@ complexity: complex
 - [x] 已实现 candidate artist hydration
 - [x] 已实现 live recommendation pipeline
 - [x] 已实现 CLI full-recommend 命令
-- [ ] 全量 unittest 与 compileall 通过
+- [x] 全量 unittest 与 compileall 通过
 
 ## Risks / Blockers
 - 当前 candidate hydration 仍按少量代表作抽样，后续需补充更多质量统计。
