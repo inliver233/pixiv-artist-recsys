@@ -48,11 +48,16 @@ def _build_job_runner() -> SeedJobRunner:
     return SeedJobRunner(facade=_build_facade())
 
 
-def _add_recommendation_args(parser: argparse.ArgumentParser, *, settings, include_output: bool = False) -> None:
-    parser.add_argument('--seed-user-id', type=int, required=True)
+def _add_pixiv_token_args(parser: argparse.ArgumentParser, *, include_seed_user: bool = True) -> None:
+    if include_seed_user:
+        parser.add_argument('--seed-user-id', type=int, required=True)
     parser.add_argument('--token-key')
     parser.add_argument('--refresh-token')
     parser.add_argument('--access-token')
+
+
+def _add_recommendation_args(parser: argparse.ArgumentParser, *, settings, include_output: bool = False) -> None:
+    _add_pixiv_token_args(parser)
     parser.add_argument('--restrict', default='public')
     parser.add_argument('--followed-artist-limit', type=int, default=5)
     parser.add_argument('--candidate-artist-limit', type=int, default=3)
@@ -138,6 +143,34 @@ def build_parser() -> argparse.ArgumentParser:
     run_manifest.add_argument('--manifest', required=True)
     run_manifest.add_argument('--output-dir')
     run_manifest.add_argument('--fail-fast', action='store_true')
+
+    pixiv_following = sub.add_parser('pixiv-following', help='Fetch current following list via refresh token/access token')
+    _add_pixiv_token_args(pixiv_following)
+    pixiv_following.add_argument('--restrict', default='public')
+    pixiv_following.add_argument('--offset', type=int)
+
+    pixiv_user_detail = sub.add_parser('pixiv-user-detail', help='Fetch Pixiv user detail via refresh token/access token')
+    _add_pixiv_token_args(pixiv_user_detail)
+    pixiv_user_detail.add_argument('--target-user-id', type=int, required=True)
+
+    pixiv_user_illusts = sub.add_parser('pixiv-user-illusts', help='Fetch Pixiv user illust list via refresh token/access token')
+    _add_pixiv_token_args(pixiv_user_illusts)
+    pixiv_user_illusts.add_argument('--target-user-id', type=int, required=True)
+    pixiv_user_illusts.add_argument('--type', default='illust')
+    pixiv_user_illusts.add_argument('--offset', type=int)
+
+    pixiv_illust_detail = sub.add_parser('pixiv-illust-detail', help='Fetch Pixiv illust detail via refresh token/access token')
+    _add_pixiv_token_args(pixiv_illust_detail)
+    pixiv_illust_detail.add_argument('--illust-id', type=int, required=True)
+
+    pixiv_user_related = sub.add_parser('pixiv-user-related', help='Fetch Pixiv related users via refresh token/access token')
+    _add_pixiv_token_args(pixiv_user_related)
+    pixiv_user_related.add_argument('--target-user-id', type=int, required=True)
+    pixiv_user_related.add_argument('--offset', type=int)
+
+    pixiv_illust_related = sub.add_parser('pixiv-illust-related', help='Fetch Pixiv related illusts via refresh token/access token')
+    _add_pixiv_token_args(pixiv_illust_related)
+    pixiv_illust_related.add_argument('--illust-id', type=int, required=True)
 
     return parser
 
@@ -392,6 +425,134 @@ def cmd_run_manifest(*, manifest: str, output_dir: str | None, fail_fast: bool) 
     return 0
 
 
+def cmd_pixiv_following(
+    *,
+    seed_user_id: int,
+    token_key: str | None,
+    refresh_token: str | None,
+    access_token: str | None,
+    restrict: str,
+    offset: int | None,
+) -> int:
+    _print_payload(
+        _build_facade().pixiv_following_payload(
+            seed_user_id=seed_user_id,
+            token_key=token_key,
+            refresh_token=refresh_token,
+            access_token=access_token,
+            restrict=restrict,
+            offset=offset,
+        )
+    )
+    return 0
+
+
+def cmd_pixiv_user_detail(
+    *,
+    seed_user_id: int,
+    target_user_id: int,
+    token_key: str | None,
+    refresh_token: str | None,
+    access_token: str | None,
+) -> int:
+    _print_payload(
+        _build_facade().pixiv_user_detail_payload(
+            seed_user_id=seed_user_id,
+            target_user_id=target_user_id,
+            token_key=token_key,
+            refresh_token=refresh_token,
+            access_token=access_token,
+        )
+    )
+    return 0
+
+
+def cmd_pixiv_user_illusts(
+    *,
+    seed_user_id: int,
+    target_user_id: int,
+    token_key: str | None,
+    refresh_token: str | None,
+    access_token: str | None,
+    type_: str,
+    offset: int | None,
+) -> int:
+    _print_payload(
+        _build_facade().pixiv_user_illusts_payload(
+            seed_user_id=seed_user_id,
+            target_user_id=target_user_id,
+            token_key=token_key,
+            refresh_token=refresh_token,
+            access_token=access_token,
+            type_=type_,
+            offset=offset,
+        )
+    )
+    return 0
+
+
+def cmd_pixiv_illust_detail(
+    *,
+    seed_user_id: int,
+    illust_id: int,
+    token_key: str | None,
+    refresh_token: str | None,
+    access_token: str | None,
+) -> int:
+    _print_payload(
+        _build_facade().pixiv_illust_detail_payload(
+            seed_user_id=seed_user_id,
+            illust_id=illust_id,
+            token_key=token_key,
+            refresh_token=refresh_token,
+            access_token=access_token,
+        )
+    )
+    return 0
+
+
+def cmd_pixiv_user_related(
+    *,
+    seed_user_id: int,
+    target_user_id: int,
+    token_key: str | None,
+    refresh_token: str | None,
+    access_token: str | None,
+    offset: int | None,
+) -> int:
+    _print_payload(
+        _build_facade().pixiv_user_related_payload(
+            seed_user_id=seed_user_id,
+            target_user_id=target_user_id,
+            token_key=token_key,
+            refresh_token=refresh_token,
+            access_token=access_token,
+            offset=offset,
+        )
+    )
+    return 0
+
+
+def cmd_pixiv_illust_related(
+    *,
+    seed_user_id: int,
+    illust_id: int,
+    token_key: str | None,
+    refresh_token: str | None,
+    access_token: str | None,
+) -> int:
+    _print_payload(
+        _build_facade().pixiv_illust_related_payload(
+            seed_user_id=seed_user_id,
+            illust_id=illust_id,
+            token_key=token_key,
+            refresh_token=refresh_token,
+            access_token=access_token,
+        )
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -485,6 +646,58 @@ def main(argv: list[str] | None = None) -> int:
             )
         if args.command == 'run-manifest':
             return cmd_run_manifest(manifest=args.manifest, output_dir=args.output_dir, fail_fast=args.fail_fast)
+        if args.command == 'pixiv-following':
+            return cmd_pixiv_following(
+                seed_user_id=args.seed_user_id,
+                token_key=args.token_key,
+                refresh_token=args.refresh_token,
+                access_token=args.access_token,
+                restrict=args.restrict,
+                offset=args.offset,
+            )
+        if args.command == 'pixiv-user-detail':
+            return cmd_pixiv_user_detail(
+                seed_user_id=args.seed_user_id,
+                target_user_id=args.target_user_id,
+                token_key=args.token_key,
+                refresh_token=args.refresh_token,
+                access_token=args.access_token,
+            )
+        if args.command == 'pixiv-user-illusts':
+            return cmd_pixiv_user_illusts(
+                seed_user_id=args.seed_user_id,
+                target_user_id=args.target_user_id,
+                token_key=args.token_key,
+                refresh_token=args.refresh_token,
+                access_token=args.access_token,
+                type_=args.type,
+                offset=args.offset,
+            )
+        if args.command == 'pixiv-illust-detail':
+            return cmd_pixiv_illust_detail(
+                seed_user_id=args.seed_user_id,
+                illust_id=args.illust_id,
+                token_key=args.token_key,
+                refresh_token=args.refresh_token,
+                access_token=args.access_token,
+            )
+        if args.command == 'pixiv-user-related':
+            return cmd_pixiv_user_related(
+                seed_user_id=args.seed_user_id,
+                target_user_id=args.target_user_id,
+                token_key=args.token_key,
+                refresh_token=args.refresh_token,
+                access_token=args.access_token,
+                offset=args.offset,
+            )
+        if args.command == 'pixiv-illust-related':
+            return cmd_pixiv_illust_related(
+                seed_user_id=args.seed_user_id,
+                illust_id=args.illust_id,
+                token_key=args.token_key,
+                refresh_token=args.refresh_token,
+                access_token=args.access_token,
+            )
     except ValueError as exc:
         parser.error(str(exc))
         return 2

@@ -14,7 +14,7 @@ from unittest.mock import patch
 from tests import test_support  # noqa: F401
 from pixiv_artist_recsys import cli
 from pixiv_artist_recsys.domain.models import Artist, Illust, RecommendationItem, RecommendationRun, SeedUser
-from pixiv_artist_recsys.pixiv.models import PagedResult, PixivIllustDetail, PixivIllustSummary, PixivUserSummary
+from pixiv_artist_recsys.pixiv.models import PagedResult, PixivIllustDetail, PixivIllustSummary, PixivUserDetail, PixivUserSummary
 from pixiv_artist_recsys.storage import RecommendationRepository, SQLiteDatabase
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -89,6 +89,14 @@ class FakeFullRecommendClient:
         }
         return PagedResult(items=mapping.get(seed_user_id, []), next_url=None)
 
+    def fetch_user_detail(self, *, user_id: int):
+        return PixivUserDetail(
+            user=PixivUserSummary(user_id=user_id, name=f'user-{user_id}', account=f'account_{user_id}', profile_image_url=f'https://img/{user_id}.jpg'),
+            total_illusts=12,
+            total_manga=3,
+            total_illust_bookmarks_public=99,
+        )
+
     def fetch_illust_related(self, *, illust_id: int):
         mapping = {
             10011: [PixivIllustSummary(illust_id=20011, user_id=2001, title='related-a')],
@@ -157,6 +165,68 @@ class CLITests(unittest.TestCase):
             self.assertIn("db_path", payload)
             self.assertIn("api", payload)
             self.assertIn("recommendation", payload)
+
+    def test_pixiv_direct_inspection_commands_output_json(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch('pixiv_artist_recsys.cli._build_pixiv_client', return_value=FakeFullRecommendClient()):
+                exit_code, following = self._run_main_inprocess(
+                    'pixiv-following',
+                    '--seed-user-id', '7',
+                    '--refresh-token', 'dummy-refresh-token',
+                    tmpdir=tmpdir,
+                )
+                self.assertEqual(exit_code, 0)
+                self.assertEqual(following['count'], 2)
+
+                exit_code, detail = self._run_main_inprocess(
+                    'pixiv-user-detail',
+                    '--seed-user-id', '7',
+                    '--target-user-id', '1001',
+                    '--refresh-token', 'dummy-refresh-token',
+                    tmpdir=tmpdir,
+                )
+                self.assertEqual(exit_code, 0)
+                self.assertEqual(detail['profile']['total_illusts'], 12)
+
+                exit_code, illusts = self._run_main_inprocess(
+                    'pixiv-user-illusts',
+                    '--seed-user-id', '7',
+                    '--target-user-id', '1001',
+                    '--refresh-token', 'dummy-refresh-token',
+                    tmpdir=tmpdir,
+                )
+                self.assertEqual(exit_code, 0)
+                self.assertEqual(illusts['items'][0]['illust_id'], 10011)
+
+                exit_code, illust_detail = self._run_main_inprocess(
+                    'pixiv-illust-detail',
+                    '--seed-user-id', '7',
+                    '--illust-id', '10011',
+                    '--refresh-token', 'dummy-refresh-token',
+                    tmpdir=tmpdir,
+                )
+                self.assertEqual(exit_code, 0)
+                self.assertEqual(illust_detail['illust']['illust_id'], 10011)
+
+                exit_code, user_related = self._run_main_inprocess(
+                    'pixiv-user-related',
+                    '--seed-user-id', '7',
+                    '--target-user-id', '1001',
+                    '--refresh-token', 'dummy-refresh-token',
+                    tmpdir=tmpdir,
+                )
+                self.assertEqual(exit_code, 0)
+                self.assertEqual(user_related['items'][0]['user_id'], 2001)
+
+                exit_code, illust_related = self._run_main_inprocess(
+                    'pixiv-illust-related',
+                    '--seed-user-id', '7',
+                    '--illust-id', '10011',
+                    '--refresh-token', 'dummy-refresh-token',
+                    tmpdir=tmpdir,
+                )
+                self.assertEqual(exit_code, 0)
+                self.assertEqual(illust_related['items'][0]['illust_id'], 20011)
 
     def test_run_seed_job_writes_snapshot_output(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
