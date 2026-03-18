@@ -47,11 +47,11 @@ complexity: medium
 - none：继续使用本地 fake client 单测
 
 ## Acceptance Checklist
-- [ ] 已生成第十二批 plan 与 Issue CSV
-- [ ] 已实现 Pixiv inspector service / facade payload
-- [ ] 已实现 Pixiv 信息查询 API 端点
-- [ ] 已实现 Pixiv 信息查询 CLI 命令
-- [ ] 全量 unittest 与 compileall 通过
+- [x] 已生成第十二批 plan 与 Issue CSV
+- [x] 已实现 Pixiv inspector service / facade payload
+- [x] 已实现 Pixiv 信息查询 API 端点
+- [x] 已实现 Pixiv 信息查询 CLI 命令
+- [x] 全量 unittest 与 compileall 通过
 
 ## Risks / Blockers
 - refresh token 相关命令需要尽量避免在日志中泄漏敏感值。
