@@ -8,6 +8,7 @@ from typing import Any, Callable
 from ..feedback import FeedbackService
 from ..ingest import ArtistIllustHydrationService, FollowingSyncService
 from ..pipeline import LiveRecommendationPipeline, LiveRecommendationRequest, RecommendationPipeline, RecommendationRequest
+from ..pixiv import PixivInspectorService
 from ..profile import UserTasteProfileService
 from ..rank import HeuristicArtistRankService
 from ..runtime import AppRuntime
@@ -316,6 +317,118 @@ class ApplicationFacade:
             },
             'items': self._ranked_items_payload(result.run.items),
         }
+
+    def pixiv_following_payload(
+        self,
+        *,
+        seed_user_id: int,
+        token_key: str | None = None,
+        refresh_token: str | None = None,
+        access_token: str | None = None,
+        restrict: str = 'public',
+        offset: int | None = None,
+    ) -> dict[str, Any]:
+        return PixivInspectorService(
+            pixiv_client=self._build_pixiv_client(
+                seed_user_id=seed_user_id,
+                token_key=token_key,
+                refresh_token=refresh_token,
+                access_token=access_token,
+            )
+        ).following_payload(user_id=seed_user_id, restrict=restrict, offset=offset)
+
+    def pixiv_user_detail_payload(
+        self,
+        *,
+        seed_user_id: int,
+        target_user_id: int,
+        token_key: str | None = None,
+        refresh_token: str | None = None,
+        access_token: str | None = None,
+    ) -> dict[str, Any]:
+        return PixivInspectorService(
+            pixiv_client=self._build_pixiv_client(
+                seed_user_id=seed_user_id,
+                token_key=token_key,
+                refresh_token=refresh_token,
+                access_token=access_token,
+            )
+        ).user_detail_payload(user_id=target_user_id)
+
+    def pixiv_user_illusts_payload(
+        self,
+        *,
+        seed_user_id: int,
+        target_user_id: int,
+        token_key: str | None = None,
+        refresh_token: str | None = None,
+        access_token: str | None = None,
+        type_: str = 'illust',
+        offset: int | None = None,
+    ) -> dict[str, Any]:
+        return PixivInspectorService(
+            pixiv_client=self._build_pixiv_client(
+                seed_user_id=seed_user_id,
+                token_key=token_key,
+                refresh_token=refresh_token,
+                access_token=access_token,
+            )
+        ).user_illusts_payload(user_id=target_user_id, type_=type_, offset=offset)
+
+    def pixiv_illust_detail_payload(
+        self,
+        *,
+        seed_user_id: int,
+        illust_id: int,
+        token_key: str | None = None,
+        refresh_token: str | None = None,
+        access_token: str | None = None,
+    ) -> dict[str, Any]:
+        return PixivInspectorService(
+            pixiv_client=self._build_pixiv_client(
+                seed_user_id=seed_user_id,
+                token_key=token_key,
+                refresh_token=refresh_token,
+                access_token=access_token,
+            )
+        ).illust_detail_payload(illust_id=illust_id)
+
+    def pixiv_user_related_payload(
+        self,
+        *,
+        seed_user_id: int,
+        target_user_id: int,
+        token_key: str | None = None,
+        refresh_token: str | None = None,
+        access_token: str | None = None,
+        offset: int | None = None,
+    ) -> dict[str, Any]:
+        return PixivInspectorService(
+            pixiv_client=self._build_pixiv_client(
+                seed_user_id=seed_user_id,
+                token_key=token_key,
+                refresh_token=refresh_token,
+                access_token=access_token,
+            )
+        ).user_related_payload(seed_user_id=target_user_id, offset=offset)
+
+    def pixiv_illust_related_payload(
+        self,
+        *,
+        seed_user_id: int,
+        illust_id: int,
+        token_key: str | None = None,
+        refresh_token: str | None = None,
+        access_token: str | None = None,
+    ) -> dict[str, Any]:
+        return PixivInspectorService(
+            pixiv_client=self._build_pixiv_client(
+                seed_user_id=seed_user_id,
+                token_key=token_key,
+                refresh_token=refresh_token,
+                access_token=access_token,
+            )
+        ).illust_related_payload(illust_id=illust_id)
 
     def _build_pixiv_client(
         self,

@@ -8,7 +8,7 @@ from pathlib import Path
 from tests import test_support  # noqa: F401
 from pixiv_artist_recsys.application import ApplicationFacade
 from pixiv_artist_recsys.domain.models import Artist, Illust, RecommendationItem, RecommendationRun, SeedUser
-from pixiv_artist_recsys.pixiv.models import PagedResult, PixivIllustDetail, PixivIllustSummary, PixivUserSummary
+from pixiv_artist_recsys.pixiv.models import PagedResult, PixivIllustDetail, PixivIllustSummary, PixivUserDetail, PixivUserSummary
 from pixiv_artist_recsys.runtime import AppRuntime
 
 
@@ -44,6 +44,14 @@ class FakeFullRecommendClient:
             1002: [],
         }
         return PagedResult(items=mapping.get(seed_user_id, []), next_url=None)
+
+    def fetch_user_detail(self, *, user_id: int):
+        return PixivUserDetail(
+            user=PixivUserSummary(user_id=user_id, name=f'user-{user_id}', account=f'account_{user_id}', profile_image_url=f'https://img/{user_id}.jpg'),
+            total_illusts=12,
+            total_manga=3,
+            total_illust_bookmarks_public=99,
+        )
 
     def fetch_illust_related(self, *, illust_id: int):
         mapping = {
@@ -146,6 +154,28 @@ class ApplicationFacadeTests(unittest.TestCase):
             self.assertEqual(payload['item_count'], 1)
             self.assertEqual(payload['diversity_per_tag'], 3)
             self.assertEqual(payload['items'][0]['artist_user_id'], 2001)
+
+    def test_facade_pixiv_inspector_payloads_use_injected_client(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runtime = self._runtime(tmpdir)
+            facade = ApplicationFacade(
+                runtime=runtime,
+                pixiv_client_factory=lambda **_: FakeFullRecommendClient(),
+            )
+
+            following = facade.pixiv_following_payload(seed_user_id=7, refresh_token='dummy-refresh-token')
+            detail = facade.pixiv_user_detail_payload(seed_user_id=7, target_user_id=1001, refresh_token='dummy-refresh-token')
+            illusts = facade.pixiv_user_illusts_payload(seed_user_id=7, target_user_id=1001, refresh_token='dummy-refresh-token')
+            illust_detail = facade.pixiv_illust_detail_payload(seed_user_id=7, illust_id=10011, refresh_token='dummy-refresh-token')
+            related_users = facade.pixiv_user_related_payload(seed_user_id=7, target_user_id=1001, refresh_token='dummy-refresh-token')
+            related_illusts = facade.pixiv_illust_related_payload(seed_user_id=7, illust_id=10011, refresh_token='dummy-refresh-token')
+
+            self.assertEqual(following['count'], 2)
+            self.assertEqual(detail['profile']['total_illusts'], 12)
+            self.assertEqual(illusts['items'][0]['illust_id'], 10011)
+            self.assertEqual(illust_detail['illust']['illust_id'], 10011)
+            self.assertEqual(related_users['items'][0]['user_id'], 2001)
+            self.assertEqual(related_illusts['items'][0]['illust_id'], 20011)
 
 
 if __name__ == '__main__':
