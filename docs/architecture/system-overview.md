@@ -24,18 +24,20 @@
 - runtime/diversity/export：AppRuntime、diversity-aware rank、run list/export
 - api/config/runtime enhancement：typed settings、本地 JSON API、serve-api
 - application/live-api consolidation：ApplicationFacade、live API 端点、CLI/API 复用
+- job runner / manifest batch execution：本地 job runner、manifest、快照导出
 
 ## Current implementation focus
-当前推进到第 11 批：
-- 引入本地 job runner 与 manifest 批处理
-- 让推荐任务可批量执行并落盘快照
-- 继续增强稳定运行与运维体验
+当前推进到第 12 批：
+- 围绕 refresh token 扩展 Pixiv 直查链路
+- 增加 following / user / illust / related 的本地调试入口
+- 继续增强 token 驱动取数与框架可验证性
 
 ## Module map
 - `src/pixiv_artist_recsys/config.py`: 强类型 settings / env helpers
 - `src/pixiv_artist_recsys/runtime.py`: unified runtime / wiring container
 - `src/pixiv_artist_recsys/application/`: shared orchestration facade for CLI/API
 - `src/pixiv_artist_recsys/jobs/`: local batch job runner / manifest parser / snapshot export
+- `src/pixiv_artist_recsys/pixiv/`: App API client / inspector / DTO
 - `src/pixiv_artist_recsys/storage/`: SQLite schema / repository / audit data
 - `src/pixiv_artist_recsys/auth/`: OAuth refresh / token cache / coordinator / transport
 - `src/pixiv_artist_recsys/pixiv/`: Pixiv App API client / DTO
@@ -61,4 +63,5 @@
 - Phase 9: runtime/diversity/export ✅
 - Phase 10: API/config/runtime enhancement ✅
 - Phase 11: application/live API consolidation ✅
-- Phase 12: job runner / manifest batch execution（当前进行中）
+- Phase 12: job runner / manifest batch execution ✅
+- Phase 13: refresh-token-driven Pixiv inspector（当前进行中）

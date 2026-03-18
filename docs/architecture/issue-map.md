@@ -91,3 +91,10 @@
 - `CORE-008`: jobs runner + manifest parser
 - `APP-010`: run-seed-job / run-manifest CLI
 - `TEST-011`: batch regression
+
+## Batch 12
+- `DOCS-012`: 第十二批 pixiv-refresh-inspector 计划资产
+- `CORE-009`: pixiv inspector service
+- `API-003`: pixiv inspector API endpoints
+- `APP-011`: pixiv direct-inspection CLI
+- `TEST-012`: batch regression
