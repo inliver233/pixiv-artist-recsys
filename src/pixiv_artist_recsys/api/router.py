@@ -177,6 +177,76 @@ class ApiRouter:
                     stop_words=self._optional_body_list(body, 'stop_words'),
                 ),
             )
+        if path == '/pixiv/following':
+            return ApiResponse(
+                status_code=200,
+                payload=self.application.pixiv_following_payload(
+                    seed_user_id=self._required_body_int(body, 'seed_user_id'),
+                    token_key=self._optional_body_text(body, 'token_key', default=None),
+                    refresh_token=self._optional_body_text(body, 'refresh_token', default=None),
+                    access_token=self._optional_body_text(body, 'access_token', default=None),
+                    restrict=self._optional_body_text(body, 'restrict', default='public') or 'public',
+                    offset=self._optional_body_int(body, 'offset', default=None),
+                ),
+            )
+        if path == '/pixiv/user-detail':
+            return ApiResponse(
+                status_code=200,
+                payload=self.application.pixiv_user_detail_payload(
+                    seed_user_id=self._required_body_int(body, 'seed_user_id'),
+                    target_user_id=self._required_body_int(body, 'target_user_id'),
+                    token_key=self._optional_body_text(body, 'token_key', default=None),
+                    refresh_token=self._optional_body_text(body, 'refresh_token', default=None),
+                    access_token=self._optional_body_text(body, 'access_token', default=None),
+                ),
+            )
+        if path == '/pixiv/user-illusts':
+            return ApiResponse(
+                status_code=200,
+                payload=self.application.pixiv_user_illusts_payload(
+                    seed_user_id=self._required_body_int(body, 'seed_user_id'),
+                    target_user_id=self._required_body_int(body, 'target_user_id'),
+                    token_key=self._optional_body_text(body, 'token_key', default=None),
+                    refresh_token=self._optional_body_text(body, 'refresh_token', default=None),
+                    access_token=self._optional_body_text(body, 'access_token', default=None),
+                    type_=self._optional_body_text(body, 'type', default='illust') or 'illust',
+                    offset=self._optional_body_int(body, 'offset', default=None),
+                ),
+            )
+        if path == '/pixiv/illust-detail':
+            return ApiResponse(
+                status_code=200,
+                payload=self.application.pixiv_illust_detail_payload(
+                    seed_user_id=self._required_body_int(body, 'seed_user_id'),
+                    illust_id=self._required_body_int(body, 'illust_id'),
+                    token_key=self._optional_body_text(body, 'token_key', default=None),
+                    refresh_token=self._optional_body_text(body, 'refresh_token', default=None),
+                    access_token=self._optional_body_text(body, 'access_token', default=None),
+                ),
+            )
+        if path == '/pixiv/user-related':
+            return ApiResponse(
+                status_code=200,
+                payload=self.application.pixiv_user_related_payload(
+                    seed_user_id=self._required_body_int(body, 'seed_user_id'),
+                    target_user_id=self._required_body_int(body, 'target_user_id'),
+                    token_key=self._optional_body_text(body, 'token_key', default=None),
+                    refresh_token=self._optional_body_text(body, 'refresh_token', default=None),
+                    access_token=self._optional_body_text(body, 'access_token', default=None),
+                    offset=self._optional_body_int(body, 'offset', default=None),
+                ),
+            )
+        if path == '/pixiv/illust-related':
+            return ApiResponse(
+                status_code=200,
+                payload=self.application.pixiv_illust_related_payload(
+                    seed_user_id=self._required_body_int(body, 'seed_user_id'),
+                    illust_id=self._required_body_int(body, 'illust_id'),
+                    token_key=self._optional_body_text(body, 'token_key', default=None),
+                    refresh_token=self._optional_body_text(body, 'refresh_token', default=None),
+                    access_token=self._optional_body_text(body, 'access_token', default=None),
+                ),
+            )
         return ApiResponse(status_code=404, payload={'error': 'not_found', 'path': path})
 
     @staticmethod

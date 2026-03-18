@@ -11,7 +11,7 @@ from tests import test_support  # noqa: F401
 from pixiv_artist_recsys.application import ApplicationFacade
 from pixiv_artist_recsys.api import ApiRequest, ApiRouter, ApiServer
 from pixiv_artist_recsys.domain.models import Artist, Illust, RecommendationItem, RecommendationRun, SeedUser
-from pixiv_artist_recsys.pixiv.models import PagedResult, PixivIllustDetail, PixivIllustSummary, PixivUserSummary
+from pixiv_artist_recsys.pixiv.models import PagedResult, PixivIllustDetail, PixivIllustSummary, PixivUserDetail, PixivUserSummary
 from pixiv_artist_recsys.runtime import AppRuntime
 
 
@@ -47,6 +47,14 @@ class FakeLiveClient:
             1002: [],
         }
         return PagedResult(items=mapping.get(seed_user_id, []), next_url=None)
+
+    def fetch_user_detail(self, *, user_id: int):
+        return PixivUserDetail(
+            user=PixivUserSummary(user_id=user_id, name=f'user-{user_id}', account=f'account_{user_id}', profile_image_url=f'https://img/{user_id}.jpg'),
+            total_illusts=12,
+            total_manga=3,
+            total_illust_bookmarks_public=99,
+        )
 
     def fetch_illust_related(self, *, illust_id: int):
         mapping = {
@@ -230,6 +238,30 @@ class ApiRouterTests(unittest.TestCase):
             self.assertEqual(response.payload['blocked_artist_ids'], [3001])
             self.assertEqual(profile.payload['blocked_artist_ids'], [3001])
             self.assertEqual(profile.payload['negative_tags'][0]['tag'], 'blue_hair')
+
+    def test_router_supports_pixiv_inspector_endpoints(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runtime = self._runtime(tmpdir)
+            application = ApplicationFacade(
+                runtime=runtime,
+                pixiv_client_factory=lambda **_: FakeLiveClient(),
+            )
+            router = ApiRouter(runtime=runtime, application=application)
+
+            following = self._request(router, 'POST', '/pixiv/following', payload={'seed_user_id': 7, 'refresh_token': 'dummy-refresh-token'})
+            detail = self._request(router, 'POST', '/pixiv/user-detail', payload={'seed_user_id': 7, 'target_user_id': 1001, 'refresh_token': 'dummy-refresh-token'})
+            illusts = self._request(router, 'POST', '/pixiv/user-illusts', payload={'seed_user_id': 7, 'target_user_id': 1001, 'refresh_token': 'dummy-refresh-token'})
+            illust_detail = self._request(router, 'POST', '/pixiv/illust-detail', payload={'seed_user_id': 7, 'illust_id': 10011, 'refresh_token': 'dummy-refresh-token'})
+            user_related = self._request(router, 'POST', '/pixiv/user-related', payload={'seed_user_id': 7, 'target_user_id': 1001, 'refresh_token': 'dummy-refresh-token'})
+            illust_related = self._request(router, 'POST', '/pixiv/illust-related', payload={'seed_user_id': 7, 'illust_id': 10011, 'refresh_token': 'dummy-refresh-token'})
+
+            self.assertEqual(following.status_code, 200)
+            self.assertEqual(following.payload['count'], 2)
+            self.assertEqual(detail.payload['profile']['total_illusts'], 12)
+            self.assertEqual(illusts.payload['items'][0]['illust_id'], 10011)
+            self.assertEqual(illust_detail.payload['illust']['illust_id'], 10011)
+            self.assertEqual(user_related.payload['items'][0]['user_id'], 2001)
+            self.assertEqual(illust_related.payload['items'][0]['illust_id'], 20011)
 
     def test_router_returns_bad_request_for_missing_required_query(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
