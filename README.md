@@ -35,6 +35,29 @@ python -m pixiv_artist_recsys show-config
 
 复制 `.env.example` 按需设置路径/推荐阈值（**不要**把真实 refresh token 写进仓库）。
 
+### 本机启动器 `start.py`（状态检测 + 一键运行）
+
+适合已从 `pixiv-downloader-personal` 导入母号/子号/代理的本机环境（关注数约 2000+ 时默认用抽样上限）：
+
+```powershell
+# 自动加载 .env，打印 token/母子号/代理/库内关注边等状态
+python start.py status
+
+# 交互菜单
+python start.py
+
+# 一键 full-recommend（默认 daily 预设：max_seed=60 / max_candidate=100）
+python start.py run
+
+# 分步：母号只 sync 关注一次，已有关注边时可跳过
+python start.py steps
+
+# 从 downloader 重导配置
+python start.py import-config
+```
+
+预设：`quick` / `daily`（默认，面向约 2600 关注） / `deep`。结果写入 `data/local/exports/`（gitignore）。
+
 ### 一键推荐（需要真实 refresh token）
 
 ```powershell
