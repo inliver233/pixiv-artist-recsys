@@ -192,6 +192,12 @@ class PixivAppApiClient:
         if not isinstance(raw, dict):
             return PixivIllustSummary(illust_id=0, user_id=0, title='')
         user = raw.get('user') if isinstance(raw.get('user'), dict) else {}
+        tags: list[str] = []
+        for tag in raw.get('tags') or []:
+            if isinstance(tag, dict) and isinstance(tag.get('name'), str) and tag['name'].strip():
+                tags.append(tag['name'])
+            elif isinstance(tag, str) and tag.strip():
+                tags.append(tag)
         return PixivIllustSummary(
             illust_id=PixivAppApiClient._as_int(raw.get('id')),
             user_id=PixivAppApiClient._as_int(user.get('id')),
@@ -200,6 +206,11 @@ class PixivAppApiClient:
             total_bookmarks=PixivAppApiClient._as_int(raw.get('total_bookmarks')),
             total_view=PixivAppApiClient._as_int(raw.get('total_view')),
             total_comments=PixivAppApiClient._as_int(raw.get('total_comments')),
+            tags=tags,
+            ai_type=PixivAppApiClient._as_int(raw.get('illust_ai_type')),
+            x_restrict=PixivAppApiClient._as_int(raw.get('x_restrict')),
+            illust_type=str(raw.get('type') or '').strip().lower(),
+            page_count=max(1, PixivAppApiClient._as_int(raw.get('page_count'), fallback=1)),
         )
 
     @staticmethod

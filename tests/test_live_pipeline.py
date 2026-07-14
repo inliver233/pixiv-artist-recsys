@@ -22,19 +22,35 @@ class FakeLivePixivClient:
 
     def fetch_user_illusts(self, *, user_id: int, type_: str = 'illust', offset: int | None = None):
         mapping = {
-            1001: [PixivIllustSummary(illust_id=10011, user_id=1001, title='f-a-1')],
-            1002: [PixivIllustSummary(illust_id=10021, user_id=1002, title='f-b-1')],
-            2001: [PixivIllustSummary(illust_id=20011, user_id=2001, title='c-a-1')],
-            2002: [PixivIllustSummary(illust_id=20021, user_id=2002, title='c-b-1')],
+            1001: [
+                PixivIllustSummary(illust_id=10011, user_id=1001, title='f-a-1'),
+                PixivIllustSummary(illust_id=10012, user_id=1001, title='f-a-2'),
+            ],
+            1002: [
+                PixivIllustSummary(illust_id=10021, user_id=1002, title='f-b-1'),
+                PixivIllustSummary(illust_id=10022, user_id=1002, title='f-b-2'),
+            ],
+            2001: [
+                PixivIllustSummary(illust_id=20011, user_id=2001, title='c-a-1'),
+                PixivIllustSummary(illust_id=20012, user_id=2001, title='c-a-2'),
+            ],
+            2002: [
+                PixivIllustSummary(illust_id=20021, user_id=2002, title='c-b-1'),
+                PixivIllustSummary(illust_id=20022, user_id=2002, title='c-b-2'),
+            ],
         }
         return PagedResult(items=mapping.get(user_id, []), next_url=None)
 
     def fetch_illust_detail(self, *, illust_id: int):
         payloads = {
             10011: self._detail(10011, 1001, ['Blue Hair', '制服'], 40, 400, 5),
+            10012: self._detail(10012, 1001, ['Blue Hair'], 35, 350, 4),
             10021: self._detail(10021, 1002, ['blue hair', '夜景'], 30, 300, 3),
+            10022: self._detail(10022, 1002, ['blue hair'], 28, 280, 2),
             20011: self._detail(20011, 2001, ['blue hair', '制服'], 150, 1500, 12),
+            20012: self._detail(20012, 2001, ['blue hair', '制服'], 140, 1400, 11),
             20021: self._detail(20021, 2002, ['风景'], 20, 200, 2),
+            20022: self._detail(20022, 2002, ['风景'], 18, 180, 1),
         }
         return payloads[illust_id]
 
@@ -48,7 +64,9 @@ class FakeLivePixivClient:
     def fetch_illust_related(self, *, illust_id: int):
         mapping = {
             10011: [PixivIllustSummary(illust_id=20011, user_id=2001, title='related-a')],
+            10012: [PixivIllustSummary(illust_id=20012, user_id=2001, title='related-a-2')],
             10021: [PixivIllustSummary(illust_id=20021, user_id=2002, title='related-b')],
+            10022: [PixivIllustSummary(illust_id=20022, user_id=2002, title='related-b-2')],
         }
         return PagedResult(items=mapping.get(illust_id, []), next_url=None)
 
@@ -83,18 +101,18 @@ class LivePipelineTests(unittest.TestCase):
                 LiveRecommendationRequest(
                     seed_user_id=7,
                     refresh_token_ref='masked:token',
-                    followed_artist_limit=1,
-                    candidate_artist_limit=1,
+                    followed_artist_limit=2,
+                    candidate_artist_limit=2,
                     max_related_per_artist=2,
                     max_related_per_illust=2,
                     max_results=5,
                     min_total_bookmarks=30,
-                    min_score=0.5,
+                    min_score=0.1,
                 )
             )
 
             self.assertEqual(result.following_result.synced_count, 2)
-            self.assertEqual(result.followed_hydration_result.illusts_upserted, 2)
+            self.assertEqual(result.followed_hydration_result.illusts_upserted, 4)
             self.assertEqual(result.profile_summary.artist_count, 2)
             self.assertEqual(result.candidate_result.candidate_count, 2)
             self.assertEqual(result.candidate_hydration_result.artists_processed, 2)
@@ -105,7 +123,7 @@ class LivePipelineTests(unittest.TestCase):
             self.assertIsNotNone(audit)
             self.assertEqual(audit['candidate']['candidate_count'], 2)
             self.assertEqual(audit['ranked']['artist_user_ids'], [2001])
-            self.assertGreaterEqual(repo.count_rows('illusts'), 4)
+            self.assertGreaterEqual(repo.count_rows('illusts'), 8)
 
     def test_live_pipeline_respects_max_seed_and_candidate_caps(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -117,15 +135,15 @@ class LivePipelineTests(unittest.TestCase):
                 LiveRecommendationRequest(
                     seed_user_id=7,
                     refresh_token_ref='masked:token',
-                    followed_artist_limit=1,
-                    candidate_artist_limit=1,
+                    followed_artist_limit=2,
+                    candidate_artist_limit=2,
                     max_related_per_artist=2,
                     max_related_per_illust=2,
                     max_seed_artists=1,
                     max_candidate_artists=1,
                     max_results=5,
                     min_total_bookmarks=30,
-                    min_score=0.5,
+                    min_score=0.1,
                 )
             )
 

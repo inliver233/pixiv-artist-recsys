@@ -23,18 +23,31 @@ class FakeFullRecommendClient:
         )
 
     def fetch_user_illusts(self, *, user_id: int, type_: str = 'illust', offset: int | None = None):
+        # ≥2 illusts per artist so rank min_local_illusts=2 can pass.
         mapping = {
-            1001: [PixivIllustSummary(illust_id=10011, user_id=1001, title='f-a-1')],
-            1002: [PixivIllustSummary(illust_id=10021, user_id=1002, title='f-b-1')],
-            2001: [PixivIllustSummary(illust_id=20011, user_id=2001, title='c-a-1')],
+            1001: [
+                PixivIllustSummary(illust_id=10011, user_id=1001, title='f-a-1'),
+                PixivIllustSummary(illust_id=10012, user_id=1001, title='f-a-2'),
+            ],
+            1002: [
+                PixivIllustSummary(illust_id=10021, user_id=1002, title='f-b-1'),
+                PixivIllustSummary(illust_id=10022, user_id=1002, title='f-b-2'),
+            ],
+            2001: [
+                PixivIllustSummary(illust_id=20011, user_id=2001, title='c-a-1'),
+                PixivIllustSummary(illust_id=20012, user_id=2001, title='c-a-2'),
+            ],
         }
         return PagedResult(items=mapping.get(user_id, []), next_url=None)
 
     def fetch_illust_detail(self, *, illust_id: int):
         payloads = {
             10011: self._detail(10011, 1001, ['Blue Hair', '制服'], 40, 400, 5),
+            10012: self._detail(10012, 1001, ['Blue Hair'], 35, 350, 4),
             10021: self._detail(10021, 1002, ['blue hair', '夜景'], 30, 300, 3),
+            10022: self._detail(10022, 1002, ['blue hair'], 28, 280, 2),
             20011: self._detail(20011, 2001, ['blue hair', '制服'], 150, 1500, 12),
+            20012: self._detail(20012, 2001, ['blue hair', '制服'], 140, 1400, 11),
         }
         return payloads[illust_id]
 
@@ -56,7 +69,9 @@ class FakeFullRecommendClient:
     def fetch_illust_related(self, *, illust_id: int):
         mapping = {
             10011: [PixivIllustSummary(illust_id=20011, user_id=2001, title='related-a')],
+            10012: [PixivIllustSummary(illust_id=20012, user_id=2001, title='related-a-2')],
             10021: [],
+            10022: [],
         }
         return PagedResult(items=mapping.get(illust_id, []), next_url=None)
 
@@ -121,11 +136,11 @@ class ApplicationFacadeTests(unittest.TestCase):
             payload = facade.full_recommend_payload(
                 seed_user_id=7,
                 refresh_token='dummy-refresh-token',
-                followed_artist_limit=1,
-                candidate_artist_limit=1,
+                followed_artist_limit=2,
+                candidate_artist_limit=2,
                 max_results=5,
                 min_bookmarks=100,
-                min_score=1.0,
+                min_score=0.1,
                 diversity_per_tag=1,
             )
 
@@ -155,11 +170,11 @@ class ApplicationFacadeTests(unittest.TestCase):
                 seed_user_id=7,
                 refresh_token='child-token',
                 following_refresh_token='mother-token',
-                followed_artist_limit=1,
-                candidate_artist_limit=1,
+                followed_artist_limit=2,
+                candidate_artist_limit=2,
                 max_results=5,
                 min_bookmarks=100,
-                min_score=1.0,
+                min_score=0.1,
                 diversity_per_tag=1,
             )
 
@@ -181,7 +196,9 @@ class ApplicationFacadeTests(unittest.TestCase):
             repo.replace_user_taste_profile(seed_user_id=7, weights=[('blue_hair', 0.8), ('制服', 0.2)])
             repo.upsert_artist(Artist(user_id=2001, name='candidate-a', account='candidate_a'))
             repo.upsert_illust(Illust(illust_id=9001, user_id=2001, title='c1', total_bookmarks=100, total_view=1000, total_comments=10))
+            repo.upsert_illust(Illust(illust_id=9002, user_id=2001, title='c2', total_bookmarks=90, total_view=900, total_comments=8))
             repo.replace_illust_tags(illust_id=9001, tags=['blue hair', '制服'])
+            repo.replace_illust_tags(illust_id=9002, tags=['blue hair'])
             repo.replace_artist_candidates(seed_user_id=7, candidates=[(2001, 'user_related', 'user:1001', 1.0, 'rel')])
             facade = ApplicationFacade(runtime=runtime)
 

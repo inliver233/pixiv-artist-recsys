@@ -37,6 +37,13 @@ class PixivIllustSummary:
     total_bookmarks: int = 0
     total_view: int = 0
     total_comments: int = 0
+    # Present on list endpoints (user_illusts / related / search); avoids extra detail calls.
+    tags: list[str] = field(default_factory=list)
+    ai_type: int = 0
+    x_restrict: int = 0
+    # API "type" field: illust | manga | ugoira
+    illust_type: str = ""
+    page_count: int = 1
 
 
 @dataclass(slots=True)

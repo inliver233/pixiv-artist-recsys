@@ -4,6 +4,7 @@
 
 ## 近期（质量 / 体验）
 
+- [x] 种子画师公开关注扩展（`seed_artist_following`，抽样可控，默认 12×30 / weight 1.05）
 - [ ] Profile：默认停用词表、时间衰减、标签对权重调参
 - [ ] 可选 ranking 端点作为召回源
 - [ ] CLI 默认参数环境变量化（`followed_artist_limit` 等）

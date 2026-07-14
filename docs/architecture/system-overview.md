@@ -21,13 +21,14 @@
 - OAuth refresh / token cache / token coordinator（prefer `refresh_token_rotated`）
 - Pixiv App API client（following / user detail / user illusts / illust detail / user related / illust related / user recommended / search illust）
 - following sync、followed / candidate hydration、taste profile
-- multi-source candidate retrieval：user_related + illust_related + user_recommended + tag_search
+- multi-source candidate retrieval：user_related + illust_related + user_recommended + tag_search + seed_artist_following（公开关注抽样，默认 18×28）
 - heuristic rank with median bookmarks / consistency / diversity / feedback suppression
 - live pipeline：`following -> hydration -> profile -> candidate -> candidate hydration -> rank`
-- quality guardrails：allow AI / allow R18 / min bookmarks / min score
-- HTTP retry/backoff（429/5xx）+ proxy failover
+- quality guardrails：allow AI / allow R18 / min bookmarks / min score（默认 min_score 0.52）
+- HTTP retry/backoff（429 Retry-After + jitter）+ outbound pace（~0.12s）+ proxy failover
+- hydrate 在 user_illusts list 已含 tags 时跳过 illust/detail；大关注列表 hash 抽样种子
 - typed settings、本地 JSON API、ApplicationFacade、CLI/API/jobs 共用
-- sampling caps：`max-seed-artists` / `max-candidate-artists`
+- sampling caps：`max-seed-artists` / `max-candidate-artists`（精准日常默认 90 / 130）
 
 ## Module map
 
@@ -52,13 +53,20 @@
 
 | Param | Default | Role |
 |-------|--------:|------|
-| `followed_artist_limit` | 8 | 每位关注画师拉取 illust 数（日常档默认） |
-| `candidate_artist_limit` | 5 | 每位候选画师拉取 illust 数（日常档默认） |
-| `max_related_per_artist` | 5 | 每位种子 user_related 上限 |
-| `max_related_per_illust` | 5 | 每张图 illust_related 上限 |
-| `max_seed_artists` | 40 | 参与 hydrate/召回的关注画师上限 |
-| `max_candidate_artists` | 80 | 需要 hydrate 的候选画师上限 |
-| `max_results` | 50 | 最终输出条数 |
+| `followed_artist_limit` | 10 | 每位关注画师拉取 illust 数（精准日常默认） |
+| `candidate_artist_limit` | 6 | 每位候选画师拉取 illust 数（精准日常默认） |
+| `max_related_per_artist` | 6 | 每位种子 user_related 上限 |
+| `max_related_per_illust` | 6 | 每张图 illust_related 上限 |
+| `max_seed_artists` | 90 | 参与 hydrate/召回的关注画师上限（hash 抽样） |
+| `max_candidate_artists` | 130 | 需要 hydrate 的候选画师上限 |
+| `enable_seed_following` | true | 从已关注画师的公开关注列表扩展候选 |
+| `max_seed_following_artists` | 18 | 扩展多少个种子画师（抽样，非全量） |
+| `max_following_per_seed_artist` | 28 | 每个种子最多取多少公开关注 |
+| `seed_following_sample` | hydrated_first | 种子挑选：hydrated_first / hash / first |
+| `max_results` | 60 | 最终输出条数 |
+| `min_score` | 0.52 | 排序最低分（防弱证据刷榜） |
+| `diversity_per_tag` | 3 | 主 tag 多样性上限 |
+| HTTP pace min interval | 0.12s | 单 token 稳态间隔（env 可关） |
 
 ## Roadmap status
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import random
 import time
 from dataclasses import dataclass
 from typing import Callable, Mapping
@@ -12,9 +13,10 @@ DEFAULT_RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
 
 @dataclass(slots=True)
 class RetryPolicy:
-    max_attempts: int = 3
-    base_delay_s: float = 0.5
-    max_delay_s: float = 8.0
+    max_attempts: int = 4
+    base_delay_s: float = 0.8
+    max_delay_s: float = 20.0
+    jitter_s: float = 0.35
     retryable_status_codes: frozenset[int] = DEFAULT_RETRYABLE_STATUS_CODES
 
 
@@ -27,10 +29,12 @@ class RetryingHttpTransport:
         base_transport: HttpTransport,
         policy: RetryPolicy | None = None,
         sleep_fn: Callable[[float], None] | None = None,
+        random_fn: Callable[[float, float], float] | None = None,
     ) -> None:
         self.base_transport = base_transport
         self.policy = policy or RetryPolicy()
         self.sleep_fn = sleep_fn or time.sleep
+        self.random_fn = random_fn or random.uniform
 
     def send(
         self,
@@ -62,7 +66,7 @@ class RetryingHttpTransport:
                 last_error = exc
                 if attempt >= attempts:
                     raise
-                self._sleep(attempt)
+                self._sleep(attempt, response=None)
                 continue
 
             if response.status_code not in self.policy.retryable_status_codes:
@@ -71,7 +75,7 @@ class RetryingHttpTransport:
             last_response = response
             if attempt >= attempts:
                 return response
-            self._sleep(attempt)
+            self._sleep(attempt, response=response)
 
         if last_response is not None:
             return last_response
@@ -79,7 +83,35 @@ class RetryingHttpTransport:
             raise last_error
         raise RuntimeError('Retry transport exhausted without response')
 
-    def _sleep(self, attempt: int) -> None:
+    def _sleep(self, attempt: int, *, response: HttpResponse | None) -> None:
         delay = min(self.policy.max_delay_s, self.policy.base_delay_s * (2 ** (attempt - 1)))
+        # 429: honour Retry-After when present; otherwise back off more aggressively.
+        if response is not None and int(response.status_code) == 429:
+            retry_after = self._parse_retry_after(response.headers)
+            if retry_after is not None:
+                delay = max(delay, retry_after)
+            else:
+                delay = max(delay, min(self.policy.max_delay_s, self.policy.base_delay_s * (2 ** attempt)))
+        if self.policy.jitter_s > 0:
+            delay += max(0.0, float(self.random_fn(0.0, self.policy.jitter_s)))
         if delay > 0:
             self.sleep_fn(delay)
+
+    @staticmethod
+    def _parse_retry_after(headers: Mapping[str, str] | None) -> float | None:
+        if not headers:
+            return None
+        raw = None
+        for key, value in headers.items():
+            if str(key).lower() == 'retry-after':
+                raw = value
+                break
+        if raw is None:
+            return None
+        try:
+            seconds = float(str(raw).strip())
+        except ValueError:
+            return None
+        if seconds < 0:
+            return None
+        return seconds

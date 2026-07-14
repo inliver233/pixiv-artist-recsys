@@ -32,6 +32,9 @@ class Illust:
     total_comments: int = 0
     ai_type: int = 0
     x_restrict: int = 0
+    # Pixiv type: "illust" | "manga" | "ugoira" (empty when unknown / legacy rows).
+    illust_type: str = ""
+    page_count: int = 1
 
 
 @dataclass(slots=True)

@@ -65,20 +65,37 @@ class FakeFullRecommendClient:
         )
 
     def fetch_user_illusts(self, *, user_id: int, type_: str = 'illust', offset: int | None = None):
+        # ≥2 illusts so rank min_local_illusts=2 passes under calibrated scoring.
         mapping = {
-            1001: [PixivIllustSummary(illust_id=10011, user_id=1001, title='f-a-1')],
-            1002: [PixivIllustSummary(illust_id=10021, user_id=1002, title='f-b-1')],
-            2001: [PixivIllustSummary(illust_id=20011, user_id=2001, title='c-a-1')],
-            2002: [PixivIllustSummary(illust_id=20021, user_id=2002, title='c-b-1')],
+            1001: [
+                PixivIllustSummary(illust_id=10011, user_id=1001, title='f-a-1'),
+                PixivIllustSummary(illust_id=10012, user_id=1001, title='f-a-2'),
+            ],
+            1002: [
+                PixivIllustSummary(illust_id=10021, user_id=1002, title='f-b-1'),
+                PixivIllustSummary(illust_id=10022, user_id=1002, title='f-b-2'),
+            ],
+            2001: [
+                PixivIllustSummary(illust_id=20011, user_id=2001, title='c-a-1'),
+                PixivIllustSummary(illust_id=20012, user_id=2001, title='c-a-2'),
+            ],
+            2002: [
+                PixivIllustSummary(illust_id=20021, user_id=2002, title='c-b-1'),
+                PixivIllustSummary(illust_id=20022, user_id=2002, title='c-b-2'),
+            ],
         }
         return PagedResult(items=mapping.get(user_id, []), next_url=None)
 
     def fetch_illust_detail(self, *, illust_id: int):
         payloads = {
             10011: self._detail(10011, 1001, ['Blue Hair', '制服'], 40, 400, 5),
+            10012: self._detail(10012, 1001, ['Blue Hair'], 35, 350, 4),
             10021: self._detail(10021, 1002, ['blue hair', '夜景'], 30, 300, 3),
+            10022: self._detail(10022, 1002, ['blue hair'], 28, 280, 2),
             20011: self._detail(20011, 2001, ['blue hair', '制服'], 150, 1500, 12),
+            20012: self._detail(20012, 2001, ['blue hair', '制服'], 140, 1400, 11),
             20021: self._detail(20021, 2002, ['风景'], 20, 200, 2),
+            20022: self._detail(20022, 2002, ['风景'], 18, 180, 1),
         }
         return payloads[illust_id]
 
@@ -100,7 +117,9 @@ class FakeFullRecommendClient:
     def fetch_illust_related(self, *, illust_id: int):
         mapping = {
             10011: [PixivIllustSummary(illust_id=20011, user_id=2001, title='related-a')],
+            10012: [PixivIllustSummary(illust_id=20012, user_id=2001, title='related-a-2')],
             10021: [PixivIllustSummary(illust_id=20021, user_id=2002, title='related-b')],
+            10022: [PixivIllustSummary(illust_id=20022, user_id=2002, title='related-b-2')],
         }
         return PagedResult(items=mapping.get(illust_id, []), next_url=None)
 
@@ -236,11 +255,11 @@ class CLITests(unittest.TestCase):
                     'run-seed-job',
                     '--seed-user-id', '7',
                     '--refresh-token', 'dummy-refresh-token',
-                    '--followed-artist-limit', '1',
-                    '--candidate-artist-limit', '1',
+                    '--followed-artist-limit', '2',
+                    '--candidate-artist-limit', '2',
                     '--max-results', '5',
                     '--min-bookmarks', '100',
-                    '--min-score', '1.0',
+                    '--min-score', '0.1',
                     '--diversity-per-tag', '1',
                     '--output', snapshot_path,
                     tmpdir=tmpdir,
@@ -261,11 +280,11 @@ class CLITests(unittest.TestCase):
                             {
                                 'seed_user_id': 7,
                                 'refresh_token': 'dummy-refresh-token',
-                                'followed_artist_limit': 1,
-                                'candidate_artist_limit': 1,
+                                'followed_artist_limit': 2,
+                                'candidate_artist_limit': 2,
                                 'max_results': 5,
                                 'min_bookmarks': 100,
-                                'min_score': 1.0,
+                                'min_score': 0.1,
                                 'diversity_per_tag': 1,
                                 'output_name': 'seed-7.json',
                             }
@@ -433,7 +452,10 @@ class CLITests(unittest.TestCase):
 
             self.assertEqual(exit_code, 0)
             self.assertEqual(payload['seed_user_id'], 7)
-            self.assertEqual(payload['top_tags'][0]['tag'], 'blue_hair')
+            top_tags = [row['tag'] for row in payload['top_tags']]
+            # blue_hair is on every artist → IDF damps vs rarer tags; still must appear.
+            self.assertIn('blue_hair', top_tags)
+            self.assertTrue(any(tag in top_tags for tag in ('制服', '夜景')))
             self.assertGreater(len(payload['top_pairs']), 0)
 
     def test_recommend_from_store_outputs_ranked_items(self) -> None:
@@ -445,10 +467,19 @@ class CLITests(unittest.TestCase):
             repo.replace_user_taste_profile(seed_user_id=7, weights=[('blue_hair', 0.8), ('制服', 0.2)])
             repo.upsert_artist(Artist(user_id=2001, name='candidate-a', account='candidate_a'))
             repo.upsert_illust(Illust(illust_id=9001, user_id=2001, title='c1', total_bookmarks=100, total_view=1000, total_comments=10))
+            repo.upsert_illust(Illust(illust_id=9002, user_id=2001, title='c2', total_bookmarks=90, total_view=900, total_comments=8))
             repo.replace_illust_tags(illust_id=9001, tags=['blue hair', '制服'])
+            repo.replace_illust_tags(illust_id=9002, tags=['blue hair'])
             repo.replace_artist_candidates(seed_user_id=7, candidates=[(2001, 'user_related', 'user:1001', 1.0, 'rel')])
 
-            exit_code, payload = self._run_main_inprocess('recommend-from-store', '--seed-user-id', '7', '--max-results', '5', '--diversity-per-tag', '1', tmpdir=tmpdir)
+            exit_code, payload = self._run_main_inprocess(
+                'recommend-from-store',
+                '--seed-user-id', '7',
+                '--max-results', '5',
+                '--diversity-per-tag', '1',
+                '--min-score', '0.1',
+                tmpdir=tmpdir,
+            )
 
             self.assertEqual(exit_code, 0)
             self.assertEqual(payload['item_count'], 1)
@@ -479,7 +510,7 @@ class CLITests(unittest.TestCase):
             self.assertEqual(payload['illusts_upserted'], 2)
             self.assertEqual(repo.count_rows('illusts'), 2)
             self.assertTrue(payload['sync_following'])
-            self.assertEqual(payload['max_artists'], 40)
+            self.assertEqual(payload['max_artists'], 90)
 
     def test_sync_following_and_offline_step_pipeline(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -498,16 +529,16 @@ class CLITests(unittest.TestCase):
                     'hydrate-followed-illusts',
                     '--seed-user-id', '7',
                     '--refresh-token', 'dummy-refresh-token',
-                    '--per-artist-limit', '1',
-                    '--max-artists', '1',
+                    '--per-artist-limit', '2',
+                    '--max-artists', '2',
                     '--no-sync-following',
                     tmpdir=tmpdir,
                 )
                 self.assertEqual(exit_code, 0)
                 self.assertFalse(hydrate_payload['sync_following'])
                 self.assertEqual(hydrate_payload['following_synced'], 0)
-                self.assertEqual(hydrate_payload['artists_processed'], 1)
-                self.assertEqual(hydrate_payload['max_artists'], 1)
+                self.assertEqual(hydrate_payload['artists_processed'], 2)
+                self.assertEqual(hydrate_payload['max_artists'], 2)
 
                 exit_code, profile_payload = self._run_main_inprocess(
                     'build-profile',
@@ -525,18 +556,20 @@ class CLITests(unittest.TestCase):
                     '--max-seed-artists', '2',
                     '--no-enable-user-recommended',
                     '--no-enable-tag-search',
+                    '--no-enable-seed-following',
                     tmpdir=tmpdir,
                 )
                 self.assertEqual(exit_code, 0)
                 self.assertGreaterEqual(candidates_payload['candidate_count'], 1)
                 self.assertFalse(candidates_payload['enable_user_recommended'])
                 self.assertFalse(candidates_payload['enable_tag_search'])
+                self.assertFalse(candidates_payload['enable_seed_following'])
 
                 exit_code, cand_hydrate = self._run_main_inprocess(
                     'hydrate-candidate-illusts',
                     '--seed-user-id', '7',
                     '--refresh-token', 'dummy-refresh-token',
-                    '--per-artist-limit', '1',
+                    '--per-artist-limit', '2',
                     '--max-artists', '2',
                     tmpdir=tmpdir,
                 )
@@ -564,12 +597,12 @@ class CLITests(unittest.TestCase):
                     'full-recommend',
                     '--seed-user-id', '7',
                     '--refresh-token', 'dummy-refresh-token',
-                    '--followed-artist-limit', '1',
-                    '--candidate-artist-limit', '1',
+                    '--followed-artist-limit', '2',
+                    '--candidate-artist-limit', '2',
                     '--max-results', '5',
                     '--allow-ai',
                     '--min-bookmarks', '100',
-                    '--min-score', '1.0',
+                    '--min-score', '0.1',
                     '--diversity-per-tag', '1',
                     tmpdir=tmpdir,
                 )
@@ -581,7 +614,7 @@ class CLITests(unittest.TestCase):
             self.assertEqual(payload['filters']['allow_ai'], True)
             self.assertEqual(payload['filters']['allow_r18'], False)
             self.assertEqual(payload['filters']['min_bookmarks'], 100)
-            self.assertEqual(payload['filters']['min_score'], 1.0)
+            self.assertEqual(payload['filters']['min_score'], 0.1)
             self.assertEqual(payload['filters']['diversity_per_tag'], 1)
             self.assertEqual(payload['recommended_artist_ids'], [2001])
             self.assertEqual(payload['stats']['candidate_count'], 2)

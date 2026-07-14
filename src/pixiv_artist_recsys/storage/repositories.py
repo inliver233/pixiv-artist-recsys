@@ -216,8 +216,11 @@ class RecommendationRepository:
         with self.database.connect() as conn:
             conn.execute(
                 """
-                INSERT INTO illusts (illust_id, user_id, title, create_date, total_bookmarks, total_view, total_comments, ai_type, x_restrict)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO illusts (
+                    illust_id, user_id, title, create_date, total_bookmarks, total_view, total_comments,
+                    ai_type, x_restrict, illust_type, page_count
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(illust_id) DO UPDATE SET
                     user_id=excluded.user_id,
                     title=excluded.title,
@@ -226,7 +229,9 @@ class RecommendationRepository:
                     total_view=excluded.total_view,
                     total_comments=excluded.total_comments,
                     ai_type=excluded.ai_type,
-                    x_restrict=excluded.x_restrict
+                    x_restrict=excluded.x_restrict,
+                    illust_type=excluded.illust_type,
+                    page_count=excluded.page_count
                 """,
                 (
                     illust.illust_id,
@@ -238,6 +243,8 @@ class RecommendationRepository:
                     illust.total_comments,
                     illust.ai_type,
                     illust.x_restrict,
+                    illust.illust_type or '',
+                    max(1, int(illust.page_count or 1)),
                 ),
             )
 
@@ -300,10 +307,47 @@ class RecommendationRepository:
     def fetch_illusts_for_artist(self, *, artist_user_id: int) -> list[Illust]:
         with self.database.connect() as conn:
             rows = conn.execute(
-                "SELECT illust_id, user_id, title, create_date, total_bookmarks, total_view, total_comments, ai_type, x_restrict FROM illusts WHERE user_id = ? ORDER BY total_bookmarks DESC, illust_id DESC",
+                """
+                SELECT illust_id, user_id, title, create_date, total_bookmarks, total_view, total_comments,
+                       ai_type, x_restrict, illust_type, page_count
+                FROM illusts
+                WHERE user_id = ?
+                ORDER BY total_bookmarks DESC, illust_id DESC
+                """,
                 (artist_user_id,),
             ).fetchall()
-        return [Illust(illust_id=int(r['illust_id']), user_id=int(r['user_id']), title=str(r['title']), create_date=str(r['create_date']), total_bookmarks=int(r['total_bookmarks']), total_view=int(r['total_view']), total_comments=int(r['total_comments']), ai_type=int(r['ai_type']), x_restrict=int(r['x_restrict'])) for r in rows]
+        return [
+            Illust(
+                illust_id=int(r['illust_id']),
+                user_id=int(r['user_id']),
+                title=str(r['title']),
+                create_date=str(r['create_date']),
+                total_bookmarks=int(r['total_bookmarks']),
+                total_view=int(r['total_view']),
+                total_comments=int(r['total_comments']),
+                ai_type=int(r['ai_type']),
+                x_restrict=int(r['x_restrict']),
+                illust_type=str(r['illust_type'] or ''),
+                page_count=max(1, int(r['page_count'] or 1)),
+            )
+            for r in rows
+        ]
+
+    def fetch_illust_tag_map(self, *, illust_ids: list[int]) -> dict[int, list[str]]:
+        """Return {illust_id: [tags...]} for genre-fraction and pair matching."""
+        if not illust_ids:
+            return {}
+        placeholders = ','.join(['?'] * len(illust_ids))
+        with self.database.connect() as conn:
+            rows = conn.execute(
+                f"SELECT illust_id, tag FROM illust_tags WHERE illust_id IN ({placeholders}) ORDER BY illust_id, tag",
+                tuple(illust_ids),
+            ).fetchall()
+        result: dict[int, list[str]] = {}
+        for row in rows:
+            illust_id = int(row['illust_id'])
+            result.setdefault(illust_id, []).append(str(row['tag']))
+        return result
 
     def replace_user_taste_profile(self, *, seed_user_id: int, weights: list[tuple[str, float]]) -> None:
         with self.database.connect() as conn:
@@ -393,11 +437,30 @@ class RecommendationRepository:
         return result
 
     def replace_artist_candidates(self, *, seed_user_id: int, candidates: list[tuple[int, str, str, float, str]]) -> None:
+        # Same (candidate, source_type, source_key) can appear many times from list APIs
+        # (e.g. tag_search returning several illusts by one artist). Collapse before insert.
+        merged: dict[tuple[int, str, str], tuple[float, str]] = {}
+        for candidate_user_id, source_type, source_key, weight, detail in candidates:
+            key = (int(candidate_user_id), str(source_type), str(source_key))
+            weight_f = float(weight)
+            prev = merged.get(key)
+            if prev is None or weight_f > prev[0]:
+                merged[key] = (weight_f, str(detail or ''))
+        rows = [
+            (seed_user_id, candidate_user_id, source_type, source_key, weight, detail)
+            for (candidate_user_id, source_type, source_key), (weight, detail) in merged.items()
+        ]
         with self.database.connect() as conn:
             conn.execute("DELETE FROM artist_candidates WHERE seed_user_id = ?", (seed_user_id,))
             conn.executemany(
-                "INSERT INTO artist_candidates (seed_user_id, candidate_user_id, source_type, source_key, weight, detail) VALUES (?, ?, ?, ?, ?, ?)",
-                [(seed_user_id, candidate_user_id, source_type, source_key, float(weight), detail) for candidate_user_id, source_type, source_key, weight, detail in candidates],
+                """
+                INSERT INTO artist_candidates (seed_user_id, candidate_user_id, source_type, source_key, weight, detail)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(seed_user_id, candidate_user_id, source_type, source_key) DO UPDATE SET
+                    weight=excluded.weight,
+                    detail=excluded.detail
+                """,
+                rows,
             )
 
     def fetch_artist_candidates(self, *, seed_user_id: int) -> list[tuple[int, str, str, float, str]]:

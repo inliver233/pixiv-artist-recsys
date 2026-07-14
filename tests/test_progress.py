@@ -1,19 +1,20 @@
 from __future__ import annotations
 
-import json
 import tempfile
 import unittest
 from pathlib import Path
 
 from tests import test_support  # noqa: F401
 from pixiv_artist_recsys.application import ApplicationFacade
-from pixiv_artist_recsys.jobs import SeedJobRequest, SeedJobRunner, load_job_manifest
-from pixiv_artist_recsys.pixiv.models import PagedResult, PixivIllustDetail, PixivIllustSummary, PixivUserSummary
+from pixiv_artist_recsys.pixiv.models import PagedResult, PixivIllustDetail, PixivIllustSummary, PixivUserDetail, PixivUserSummary
 from pixiv_artist_recsys.runtime import AppRuntime
+from pixiv_artist_recsys.utils.progress import ProgressEvent, emit
 
 
-class FakeJobClient:
+class FakeProgressClient:
     def fetch_following_users(self, *, user_id: int, restrict: str = 'public', offset: int | None = None):
+        if offset:
+            return PagedResult(items=[], next_url=None)
         return PagedResult(
             items=[
                 PixivUserSummary(user_id=1001, name='followed-a', account='followed_a'),
@@ -57,6 +58,14 @@ class FakeJobClient:
         }
         return PagedResult(items=mapping.get(seed_user_id, []), next_url=None)
 
+    def fetch_user_detail(self, *, user_id: int):
+        return PixivUserDetail(
+            user=PixivUserSummary(user_id=user_id, name=f'user-{user_id}', account=f'account_{user_id}'),
+            total_illusts=12,
+            total_manga=3,
+            total_illust_bookmarks_public=99,
+        )
+
     def fetch_illust_related(self, *, illust_id: int):
         mapping = {
             10011: [PixivIllustSummary(illust_id=20011, user_id=2001, title='related-a')],
@@ -86,69 +95,50 @@ class FakeJobClient:
         )
 
 
-class JobRunnerTests(unittest.TestCase):
-    def _runner(self, tmpdir: str) -> SeedJobRunner:
-        runtime = AppRuntime.create(env={'PIXIV_ARTIST_RECSYS_DATA_DIR': str(Path(tmpdir) / 'data')}, now_fn=lambda: 100)
-        runtime.prepare()
-        facade = ApplicationFacade(runtime=runtime, pixiv_client_factory=lambda **_: FakeJobClient())
-        return SeedJobRunner(facade=facade)
+class ProgressTests(unittest.TestCase):
+    def test_emit_noop_when_callback_missing(self) -> None:
+        emit(None, stage='x', event='start', message='noop')
 
-    def test_run_writes_snapshot_file(self) -> None:
+    def test_emit_delivers_event(self) -> None:
+        seen: list[ProgressEvent] = []
+        emit(seen.append, stage='following_sync', event='progress', current=30, total=0, message='page', pages_fetched=1)
+        self.assertEqual(len(seen), 1)
+        self.assertEqual(seen[0].stage, 'following_sync')
+        self.assertEqual(seen[0].current, 30)
+        self.assertEqual(seen[0].meta['pages_fetched'], 1)
+
+    def test_full_recommend_emits_stage_progress(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            runner = self._runner(tmpdir)
-
-            result = runner.run(
-                SeedJobRequest(
-                    seed_user_id=7,
-                    refresh_token='dummy-refresh-token',
-                    followed_artist_limit=2,
-                    candidate_artist_limit=2,
-                    max_results=5,
-                    min_bookmarks=100,
-                    min_score=0.1,
-                    diversity_per_tag=1,
-                )
+            env = {'PIXIV_ARTIST_RECSYS_DATA_DIR': str(Path(tmpdir) / 'data')}
+            runtime = AppRuntime.create(env=env, now_fn=lambda: 100)
+            runtime.prepare()
+            facade = ApplicationFacade(
+                runtime=runtime,
+                pixiv_client_factory=lambda **_: FakeProgressClient(),
             )
-
-            self.assertTrue(Path(result.output_path).exists())
-            self.assertEqual(result.payload['recommended_artist_ids'], [2001])
-
-    def test_load_manifest_and_run_manifest(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            runner = self._runner(tmpdir)
-            manifest_path = Path(tmpdir) / 'manifest.json'
-            manifest_path.write_text(
-                json.dumps(
-                    {
-                        'jobs': [
-                            {
-                                'seed_user_id': 7,
-                                'refresh_token': 'dummy-refresh-token',
-                                'followed_artist_limit': 2,
-                                'candidate_artist_limit': 2,
-                                'max_results': 5,
-                                'min_bookmarks': 100,
-                                'min_score': 0.1,
-                                'diversity_per_tag': 1,
-                                'output_name': 'seed-7.json',
-                            }
-                        ]
-                    },
-                    ensure_ascii=False,
-                    indent=2,
-                ),
-                encoding='utf-8',
+            events: list[ProgressEvent] = []
+            payload = facade.full_recommend_payload(
+                seed_user_id=7,
+                refresh_token='dummy-refresh-token',
+                followed_artist_limit=2,
+                candidate_artist_limit=2,
+                max_results=5,
+                min_bookmarks=100,
+                min_score=0.1,
+                diversity_per_tag=1,
+                on_progress=events.append,
             )
-
-            jobs = load_job_manifest(manifest_path)
-            summary = runner.run_manifest(manifest_path=manifest_path, output_dir=Path(tmpdir) / 'exports')
-
-            self.assertEqual(len(jobs), 1)
-            self.assertEqual(jobs[0].seed_user_id, 7)
-            self.assertEqual(summary.jobs_requested, 1)
-            self.assertEqual(summary.jobs_succeeded, 1)
-            self.assertEqual(summary.jobs_failed, 0)
-            self.assertTrue(Path(summary.results[0].output_path).exists())
+            self.assertEqual(payload['recommended_artist_ids'], [2001])
+            stages = {e.stage for e in events}
+            kinds = {(e.stage, e.event) for e in events}
+            self.assertIn('pipeline', stages)
+            self.assertIn('following_sync', stages)
+            self.assertIn('hydrate_followed', stages)
+            self.assertIn('candidates', stages)
+            self.assertIn(('pipeline', 'start'), kinds)
+            self.assertIn(('pipeline', 'done'), kinds)
+            self.assertIn(('following_sync', 'progress'), kinds)
+            self.assertTrue(any(e.event == 'progress' for e in events if e.stage == 'hydrate_followed'))
 
 
 if __name__ == '__main__':

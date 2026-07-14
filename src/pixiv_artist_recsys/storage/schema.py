@@ -55,6 +55,8 @@ SCHEMA_STATEMENTS = [
         total_comments INTEGER NOT NULL DEFAULT 0,
         ai_type INTEGER NOT NULL DEFAULT 0,
         x_restrict INTEGER NOT NULL DEFAULT 0,
+        illust_type TEXT NOT NULL DEFAULT '',
+        page_count INTEGER NOT NULL DEFAULT 1,
         FOREIGN KEY(user_id) REFERENCES artists(user_id)
     )
     """,

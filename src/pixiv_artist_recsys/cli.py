@@ -70,18 +70,59 @@ def _add_following_token_args(parser: argparse.ArgumentParser) -> None:
 def _add_recommendation_args(parser: argparse.ArgumentParser, *, settings, include_output: bool = False) -> None:
     _add_pixiv_token_args(parser)
     _add_following_token_args(parser)
+    rec = settings.recommendation
     parser.add_argument('--restrict', default='public')
-    parser.add_argument('--followed-artist-limit', type=int, default=8)
-    parser.add_argument('--candidate-artist-limit', type=int, default=5)
-    parser.add_argument('--max-related-per-artist', type=int, default=5)
-    parser.add_argument('--max-related-per-illust', type=int, default=5)
-    parser.add_argument('--max-seed-artists', type=int, default=40, help='Cap followed artists used for hydration/candidate seeds')
-    parser.add_argument('--max-candidate-artists', type=int, default=80, help='Cap candidate artists to hydrate')
+    parser.add_argument('--followed-artist-limit', type=int, default=rec.followed_artist_limit)
+    parser.add_argument('--candidate-artist-limit', type=int, default=rec.candidate_artist_limit)
+    parser.add_argument('--max-related-per-artist', type=int, default=rec.max_related_per_artist)
+    parser.add_argument('--max-related-per-illust', type=int, default=rec.max_related_per_illust)
+    parser.add_argument(
+        '--max-seed-artists',
+        type=int,
+        default=rec.max_seed_artists,
+        help='Cap followed artists used for hydration/candidate seeds',
+    )
+    parser.add_argument(
+        '--max-candidate-artists',
+        type=int,
+        default=rec.max_candidate_artists,
+        help='Cap candidate artists to hydrate',
+    )
+    parser.add_argument(
+        '--seed-sample',
+        choices=('random', 'hash', 'first'),
+        default=rec.seed_sample,
+        help='How to pick seed artists each run: random (default, different each run)|hash|first',
+    )
     parser.add_argument('--enable-user-recommended', action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument('--max-user-recommended', type=int, default=30)
+    parser.add_argument('--max-user-recommended', type=int, default=rec.max_user_recommended)
     parser.add_argument('--enable-tag-search', action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument('--max-tag-search-tags', type=int, default=5)
-    parser.add_argument('--max-tag-search-illusts', type=int, default=20)
+    parser.add_argument('--max-tag-search-tags', type=int, default=rec.max_tag_search_tags)
+    parser.add_argument('--max-tag-search-illusts', type=int, default=rec.max_tag_search_illusts)
+    parser.add_argument(
+        '--enable-seed-following',
+        action=argparse.BooleanOptionalAction,
+        default=rec.enable_seed_following,
+        help='Expand candidates from public following lists of seed artists you already follow',
+    )
+    parser.add_argument(
+        '--max-seed-following-artists',
+        type=int,
+        default=rec.max_seed_following_artists,
+        help='How many seed artists to expand via their public following (not full follow graph)',
+    )
+    parser.add_argument(
+        '--max-following-per-seed-artist',
+        type=int,
+        default=rec.max_following_per_seed_artist,
+        help='Max public follows to take from each expanded seed artist',
+    )
+    parser.add_argument(
+        '--seed-following-sample',
+        choices=('random', 'hydrated_first', 'hash', 'first'),
+        default=rec.seed_following_sample,
+        help='How to pick which seed artists to expand: random|hydrated_first|hash|first',
+    )
     parser.add_argument('--top-n-tags', type=int, default=20)
     parser.add_argument('--top-n-pairs', type=int, default=20)
     parser.add_argument('--max-results', type=int, default=settings.recommendation.max_results)
@@ -90,6 +131,13 @@ def _add_recommendation_args(parser: argparse.ArgumentParser, *, settings, inclu
     parser.add_argument('--min-bookmarks', type=int, default=settings.recommendation.min_bookmarks)
     parser.add_argument('--min-score', type=float, default=settings.recommendation.min_score)
     parser.add_argument('--diversity-per-tag', type=int, default=settings.recommendation.diversity_per_tag)
+    parser.add_argument('--min-local-illusts', type=int, default=settings.recommendation.min_local_illusts)
+    parser.add_argument(
+        '--require-tag-overlap',
+        action=argparse.BooleanOptionalAction,
+        default=settings.recommendation.require_tag_overlap,
+    )
+    parser.add_argument('--max-genre-fraction', type=float, default=settings.recommendation.max_genre_fraction)
     parser.add_argument('--stop-word', action='append', default=[])
     if include_output:
         parser.add_argument('--output')
@@ -137,17 +185,50 @@ def build_parser() -> argparse.ArgumentParser:
     sync_following = sub.add_parser('sync-following', help='Sync following list into local sqlite only')
     _add_pixiv_token_args(sync_following)
     _add_following_token_args(sync_following)
-    sync_following.add_argument('--restrict', default='public')
+    sync_following.add_argument(
+        '--restrict',
+        default='public',
+        help='public | private | all (public+private; private only for own account)',
+    )
     sync_following.add_argument('--allow-ai', action=argparse.BooleanOptionalAction, default=settings.recommendation.allow_ai)
     sync_following.add_argument('--allow-r18', action=argparse.BooleanOptionalAction, default=settings.recommendation.allow_r18)
 
+    import_following = sub.add_parser(
+        'import-following-file',
+        help='Import following UIDs from a local text export into sqlite (no Pixiv API)',
+    )
+    import_following.add_argument('--seed-user-id', type=int, required=True)
+    import_following.add_argument(
+        '--path',
+        required=True,
+        help='Text file: one artist user id per line (or mixed text containing ids)',
+    )
+
+    dedupe_library = sub.add_parser(
+        'dedupe-library',
+        help='Dedupe sqlite library (PK dups/orphans/is_followed alignment); no Pixiv API',
+    )
+    dedupe_library.add_argument(
+        '--vacuum',
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help='Run VACUUM after cleanup (default: on)',
+    )
+
+    rec = settings.recommendation
     hydrate = sub.add_parser('hydrate-followed-illusts', help="Hydrate followed artists' representative illusts into local sqlite")
     hydrate.add_argument('--seed-user-id', type=int, required=True)
     hydrate.add_argument('--token-key')
     hydrate.add_argument('--refresh-token')
     hydrate.add_argument('--access-token')
-    hydrate.add_argument('--per-artist-limit', type=int, default=8)
-    hydrate.add_argument('--max-artists', type=int, default=40)
+    hydrate.add_argument('--per-artist-limit', type=int, default=rec.followed_artist_limit)
+    hydrate.add_argument('--max-artists', type=int, default=rec.max_seed_artists)
+    hydrate.add_argument(
+        '--seed-sample',
+        choices=('random', 'hash', 'first'),
+        default=rec.seed_sample,
+        help='How to pick which followed artists to hydrate: random|hash|first',
+    )
     hydrate.add_argument('--sync-following', action=argparse.BooleanOptionalAction, default=True)
     hydrate.add_argument('--restrict', default='public')
 
@@ -156,8 +237,14 @@ def build_parser() -> argparse.ArgumentParser:
     hydrate_candidates.add_argument('--token-key')
     hydrate_candidates.add_argument('--refresh-token')
     hydrate_candidates.add_argument('--access-token')
-    hydrate_candidates.add_argument('--per-artist-limit', type=int, default=5)
-    hydrate_candidates.add_argument('--max-artists', type=int, default=80)
+    hydrate_candidates.add_argument('--per-artist-limit', type=int, default=rec.candidate_artist_limit)
+    hydrate_candidates.add_argument('--max-artists', type=int, default=rec.max_candidate_artists)
+    hydrate_candidates.add_argument(
+        '--seed-sample',
+        choices=('random', 'hash', 'first'),
+        default=rec.seed_sample,
+        help='How to pick which candidates to hydrate: random|hash|first',
+    )
 
     profile = sub.add_parser('build-profile', help='Build local taste profile from hydrated followed artists')
     profile.add_argument('--seed-user-id', type=int, required=True)
@@ -167,14 +254,35 @@ def build_parser() -> argparse.ArgumentParser:
 
     build_candidates = sub.add_parser('build-candidates', help='Build multi-source artist candidates into local sqlite')
     _add_pixiv_token_args(build_candidates)
-    build_candidates.add_argument('--max-related-per-artist', type=int, default=5)
-    build_candidates.add_argument('--max-related-per-illust', type=int, default=5)
-    build_candidates.add_argument('--max-seed-artists', type=int, default=40)
+    build_candidates.add_argument('--max-related-per-artist', type=int, default=rec.max_related_per_artist)
+    build_candidates.add_argument('--max-related-per-illust', type=int, default=rec.max_related_per_illust)
+    build_candidates.add_argument('--max-seed-artists', type=int, default=rec.max_seed_artists)
+    build_candidates.add_argument(
+        '--seed-sample',
+        choices=('random', 'hash', 'first'),
+        default=rec.seed_sample,
+    )
     build_candidates.add_argument('--enable-user-recommended', action=argparse.BooleanOptionalAction, default=True)
-    build_candidates.add_argument('--max-user-recommended', type=int, default=30)
+    build_candidates.add_argument('--max-user-recommended', type=int, default=rec.max_user_recommended)
     build_candidates.add_argument('--enable-tag-search', action=argparse.BooleanOptionalAction, default=True)
-    build_candidates.add_argument('--max-tag-search-tags', type=int, default=5)
-    build_candidates.add_argument('--max-tag-search-illusts', type=int, default=20)
+    build_candidates.add_argument('--max-tag-search-tags', type=int, default=rec.max_tag_search_tags)
+    build_candidates.add_argument('--max-tag-search-illusts', type=int, default=rec.max_tag_search_illusts)
+    build_candidates.add_argument(
+        '--enable-seed-following',
+        action=argparse.BooleanOptionalAction,
+        default=rec.enable_seed_following,
+    )
+    build_candidates.add_argument('--max-seed-following-artists', type=int, default=rec.max_seed_following_artists)
+    build_candidates.add_argument(
+        '--max-following-per-seed-artist',
+        type=int,
+        default=rec.max_following_per_seed_artist,
+    )
+    build_candidates.add_argument(
+        '--seed-following-sample',
+        choices=('random', 'hydrated_first', 'hash', 'first'),
+        default=rec.seed_following_sample,
+    )
 
     recommend = sub.add_parser('recommend-from-store', help='Rank locally stored candidate artists')
     recommend.add_argument('--seed-user-id', type=int, required=True)
@@ -184,6 +292,13 @@ def build_parser() -> argparse.ArgumentParser:
     recommend.add_argument('--allow-r18', action=argparse.BooleanOptionalAction, default=settings.recommendation.allow_r18)
     recommend.add_argument('--min-bookmarks', type=int, default=settings.recommendation.min_bookmarks)
     recommend.add_argument('--min-score', type=float, default=settings.recommendation.min_score)
+    recommend.add_argument('--min-local-illusts', type=int, default=settings.recommendation.min_local_illusts)
+    recommend.add_argument(
+        '--require-tag-overlap',
+        action=argparse.BooleanOptionalAction,
+        default=settings.recommendation.require_tag_overlap,
+    )
+    recommend.add_argument('--max-genre-fraction', type=float, default=settings.recommendation.max_genre_fraction)
 
     full = sub.add_parser('full-recommend', help='Run the full live Pixiv recommendation pipeline')
     _add_recommendation_args(full, settings=settings)
@@ -338,6 +453,21 @@ def cmd_sync_following(
     return 0
 
 
+def cmd_import_following_file(*, seed_user_id: int, path: str) -> int:
+    _print_payload(
+        _build_facade().import_following_file_payload(
+            seed_user_id=seed_user_id,
+            path=path,
+        )
+    )
+    return 0
+
+
+def cmd_dedupe_library(*, vacuum: bool) -> int:
+    _print_payload(_build_facade().dedupe_library_payload(vacuum=vacuum))
+    return 0
+
+
 def cmd_hydrate_followed_illusts(
     *,
     seed_user_id: int,
@@ -346,6 +476,7 @@ def cmd_hydrate_followed_illusts(
     access_token: str | None,
     per_artist_limit: int,
     max_artists: int,
+    seed_sample: str = 'random',
     sync_following: bool,
     restrict: str,
 ) -> int:
@@ -357,6 +488,7 @@ def cmd_hydrate_followed_illusts(
             access_token=access_token,
             per_artist_limit=per_artist_limit,
             max_artists=max_artists,
+            seed_sample=seed_sample,
             sync_following=sync_following,
             restrict=restrict,
         )
@@ -372,6 +504,7 @@ def cmd_hydrate_candidate_illusts(
     access_token: str | None,
     per_artist_limit: int,
     max_artists: int,
+    seed_sample: str = 'random',
 ) -> int:
     _print_payload(
         _build_facade().hydrate_candidate_illusts_payload(
@@ -381,6 +514,7 @@ def cmd_hydrate_candidate_illusts(
             access_token=access_token,
             per_artist_limit=per_artist_limit,
             max_artists=max_artists,
+            seed_sample=seed_sample,
         )
     )
     return 0
@@ -407,11 +541,16 @@ def cmd_build_candidates(
     max_related_per_artist: int,
     max_related_per_illust: int,
     max_seed_artists: int,
+    seed_sample: str = 'random',
     enable_user_recommended: bool,
     max_user_recommended: int,
     enable_tag_search: bool,
     max_tag_search_tags: int,
     max_tag_search_illusts: int,
+    enable_seed_following: bool,
+    max_seed_following_artists: int,
+    max_following_per_seed_artist: int,
+    seed_following_sample: str,
 ) -> int:
     _print_payload(
         _build_facade().build_candidates_payload(
@@ -422,11 +561,16 @@ def cmd_build_candidates(
             max_related_per_artist=max_related_per_artist,
             max_related_per_illust=max_related_per_illust,
             max_seed_artists=max_seed_artists,
+            seed_sample=seed_sample,
             enable_user_recommended=enable_user_recommended,
             max_user_recommended=max_user_recommended,
             enable_tag_search=enable_tag_search,
             max_tag_search_tags=max_tag_search_tags,
             max_tag_search_illusts=max_tag_search_illusts,
+            enable_seed_following=enable_seed_following,
+            max_seed_following_artists=max_seed_following_artists,
+            max_following_per_seed_artist=max_following_per_seed_artist,
+            seed_following_sample=seed_following_sample,
         )
     )
     return 0
@@ -441,6 +585,9 @@ def cmd_recommend_from_store(
     allow_r18: bool,
     min_bookmarks: int,
     min_score: float,
+    min_local_illusts: int,
+    require_tag_overlap: bool,
+    max_genre_fraction: float,
 ) -> int:
     _print_payload(
         _build_facade().recommend_from_store_payload(
@@ -451,6 +598,9 @@ def cmd_recommend_from_store(
             allow_r18=allow_r18,
             min_bookmarks=min_bookmarks,
             min_score=min_score,
+            min_local_illusts=min_local_illusts,
+            require_tag_overlap=require_tag_overlap,
+            max_genre_fraction=max_genre_fraction,
         )
     )
     return 0
@@ -471,11 +621,16 @@ def cmd_full_recommend(
     max_related_per_illust: int,
     max_seed_artists: int,
     max_candidate_artists: int,
+    seed_sample: str = 'random',
     enable_user_recommended: bool,
     max_user_recommended: int,
     enable_tag_search: bool,
     max_tag_search_tags: int,
     max_tag_search_illusts: int,
+    enable_seed_following: bool,
+    max_seed_following_artists: int,
+    max_following_per_seed_artist: int,
+    seed_following_sample: str,
     top_n_tags: int,
     top_n_pairs: int,
     max_results: int,
@@ -484,6 +639,9 @@ def cmd_full_recommend(
     min_bookmarks: int,
     min_score: float,
     diversity_per_tag: int,
+    min_local_illusts: int,
+    require_tag_overlap: bool,
+    max_genre_fraction: float,
     stop_words: list[str],
 ) -> int:
     _print_payload(
@@ -501,11 +659,16 @@ def cmd_full_recommend(
             max_related_per_illust=max_related_per_illust,
             max_seed_artists=max_seed_artists,
             max_candidate_artists=max_candidate_artists,
+            seed_sample=seed_sample,
             enable_user_recommended=enable_user_recommended,
             max_user_recommended=max_user_recommended,
             enable_tag_search=enable_tag_search,
             max_tag_search_tags=max_tag_search_tags,
             max_tag_search_illusts=max_tag_search_illusts,
+            enable_seed_following=enable_seed_following,
+            max_seed_following_artists=max_seed_following_artists,
+            max_following_per_seed_artist=max_following_per_seed_artist,
+            seed_following_sample=seed_following_sample,
             top_n_tags=top_n_tags,
             top_n_pairs=top_n_pairs,
             max_results=max_results,
@@ -514,6 +677,9 @@ def cmd_full_recommend(
             min_bookmarks=min_bookmarks,
             min_score=min_score,
             diversity_per_tag=diversity_per_tag,
+            min_local_illusts=min_local_illusts,
+            require_tag_overlap=require_tag_overlap,
+            max_genre_fraction=max_genre_fraction,
             stop_words=stop_words,
         )
     )
@@ -535,11 +701,16 @@ def cmd_run_seed_job(
     max_related_per_illust: int,
     max_seed_artists: int,
     max_candidate_artists: int,
+    seed_sample: str = 'random',
     enable_user_recommended: bool,
     max_user_recommended: int,
     enable_tag_search: bool,
     max_tag_search_tags: int,
     max_tag_search_illusts: int,
+    enable_seed_following: bool,
+    max_seed_following_artists: int,
+    max_following_per_seed_artist: int,
+    seed_following_sample: str,
     top_n_tags: int,
     top_n_pairs: int,
     max_results: int,
@@ -548,6 +719,9 @@ def cmd_run_seed_job(
     min_bookmarks: int,
     min_score: float,
     diversity_per_tag: int,
+    min_local_illusts: int,
+    require_tag_overlap: bool,
+    max_genre_fraction: float,
     stop_words: list[str],
     output: str | None,
 ) -> int:
@@ -566,11 +740,16 @@ def cmd_run_seed_job(
             max_related_per_illust=max_related_per_illust,
             max_seed_artists=max_seed_artists,
             max_candidate_artists=max_candidate_artists,
+            seed_sample=seed_sample,
             enable_user_recommended=enable_user_recommended,
             max_user_recommended=max_user_recommended,
             enable_tag_search=enable_tag_search,
             max_tag_search_tags=max_tag_search_tags,
             max_tag_search_illusts=max_tag_search_illusts,
+            enable_seed_following=enable_seed_following,
+            max_seed_following_artists=max_seed_following_artists,
+            max_following_per_seed_artist=max_following_per_seed_artist,
+            seed_following_sample=seed_following_sample,
             top_n_tags=top_n_tags,
             top_n_pairs=top_n_pairs,
             max_results=max_results,
@@ -579,6 +758,9 @@ def cmd_run_seed_job(
             min_bookmarks=min_bookmarks,
             min_score=min_score,
             diversity_per_tag=diversity_per_tag,
+            min_local_illusts=min_local_illusts,
+            require_tag_overlap=require_tag_overlap,
+            max_genre_fraction=max_genre_fraction,
             stop_words=tuple(stop_words),
         ),
         output_path=output,
@@ -775,6 +957,10 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_export_run(run_id=args.run_id, output=args.output)
         if args.command == 'dry-run-recommend':
             return cmd_dry_run_recommend(args.seed_user_id, args.refresh_token_ref, args.max_results)
+        if args.command == 'import-following-file':
+            return cmd_import_following_file(seed_user_id=args.seed_user_id, path=args.path)
+        if args.command == 'dedupe-library':
+            return cmd_dedupe_library(vacuum=args.vacuum)
         if args.command == 'sync-following':
             return cmd_sync_following(
                 seed_user_id=args.seed_user_id,
@@ -795,6 +981,7 @@ def main(argv: list[str] | None = None) -> int:
                 access_token=args.access_token,
                 per_artist_limit=args.per_artist_limit,
                 max_artists=args.max_artists,
+                seed_sample=getattr(args, 'seed_sample', 'random'),
                 sync_following=args.sync_following,
                 restrict=args.restrict,
             )
@@ -806,6 +993,7 @@ def main(argv: list[str] | None = None) -> int:
                 access_token=args.access_token,
                 per_artist_limit=args.per_artist_limit,
                 max_artists=args.max_artists,
+                seed_sample=getattr(args, 'seed_sample', 'random'),
             )
         if args.command == 'build-profile':
             return cmd_build_profile(
@@ -823,11 +1011,16 @@ def main(argv: list[str] | None = None) -> int:
                 max_related_per_artist=args.max_related_per_artist,
                 max_related_per_illust=args.max_related_per_illust,
                 max_seed_artists=args.max_seed_artists,
+                seed_sample=args.seed_sample,
                 enable_user_recommended=args.enable_user_recommended,
                 max_user_recommended=args.max_user_recommended,
                 enable_tag_search=args.enable_tag_search,
                 max_tag_search_tags=args.max_tag_search_tags,
                 max_tag_search_illusts=args.max_tag_search_illusts,
+                enable_seed_following=args.enable_seed_following,
+                max_seed_following_artists=args.max_seed_following_artists,
+                max_following_per_seed_artist=args.max_following_per_seed_artist,
+                seed_following_sample=args.seed_following_sample,
             )
         if args.command == 'recommend-from-store':
             return cmd_recommend_from_store(
@@ -838,6 +1031,9 @@ def main(argv: list[str] | None = None) -> int:
                 allow_r18=args.allow_r18,
                 min_bookmarks=args.min_bookmarks,
                 min_score=args.min_score,
+                min_local_illusts=args.min_local_illusts,
+                require_tag_overlap=args.require_tag_overlap,
+                max_genre_fraction=args.max_genre_fraction,
             )
         if args.command == 'full-recommend':
             return cmd_full_recommend(
@@ -854,11 +1050,16 @@ def main(argv: list[str] | None = None) -> int:
                 max_related_per_illust=args.max_related_per_illust,
                 max_seed_artists=args.max_seed_artists,
                 max_candidate_artists=args.max_candidate_artists,
+                seed_sample=args.seed_sample,
                 enable_user_recommended=args.enable_user_recommended,
                 max_user_recommended=args.max_user_recommended,
                 enable_tag_search=args.enable_tag_search,
                 max_tag_search_tags=args.max_tag_search_tags,
                 max_tag_search_illusts=args.max_tag_search_illusts,
+                enable_seed_following=args.enable_seed_following,
+                max_seed_following_artists=args.max_seed_following_artists,
+                max_following_per_seed_artist=args.max_following_per_seed_artist,
+                seed_following_sample=args.seed_following_sample,
                 top_n_tags=args.top_n_tags,
                 top_n_pairs=args.top_n_pairs,
                 max_results=args.max_results,
@@ -867,6 +1068,9 @@ def main(argv: list[str] | None = None) -> int:
                 min_bookmarks=args.min_bookmarks,
                 min_score=args.min_score,
                 diversity_per_tag=args.diversity_per_tag,
+                min_local_illusts=args.min_local_illusts,
+                require_tag_overlap=args.require_tag_overlap,
+                max_genre_fraction=args.max_genre_fraction,
                 stop_words=args.stop_word,
             )
         if args.command == 'run-seed-job':
@@ -884,11 +1088,16 @@ def main(argv: list[str] | None = None) -> int:
                 max_related_per_illust=args.max_related_per_illust,
                 max_seed_artists=args.max_seed_artists,
                 max_candidate_artists=args.max_candidate_artists,
+                seed_sample=args.seed_sample,
                 enable_user_recommended=args.enable_user_recommended,
                 max_user_recommended=args.max_user_recommended,
                 enable_tag_search=args.enable_tag_search,
                 max_tag_search_tags=args.max_tag_search_tags,
                 max_tag_search_illusts=args.max_tag_search_illusts,
+                enable_seed_following=args.enable_seed_following,
+                max_seed_following_artists=args.max_seed_following_artists,
+                max_following_per_seed_artist=args.max_following_per_seed_artist,
+                seed_following_sample=args.seed_following_sample,
                 top_n_tags=args.top_n_tags,
                 top_n_pairs=args.top_n_pairs,
                 max_results=args.max_results,
@@ -897,6 +1106,9 @@ def main(argv: list[str] | None = None) -> int:
                 min_bookmarks=args.min_bookmarks,
                 min_score=args.min_score,
                 diversity_per_tag=args.diversity_per_tag,
+                min_local_illusts=args.min_local_illusts,
+                require_tag_overlap=args.require_tag_overlap,
+                max_genre_fraction=args.max_genre_fraction,
                 stop_words=args.stop_word,
                 output=args.output,
             )

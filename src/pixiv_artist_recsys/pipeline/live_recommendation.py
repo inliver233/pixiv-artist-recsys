@@ -10,6 +10,7 @@ from ..pixiv import PixivAppApiClient
 from ..profile import TasteProfileSummary, UserTasteProfileService
 from ..rank import HeuristicArtistRankService, RankedRecommendationResult
 from ..storage.repositories import RecommendationRepository
+from ..utils.progress import ProgressCallback, emit
 
 
 @dataclass(slots=True)
@@ -18,25 +19,33 @@ class LiveRecommendationRequest:
     refresh_token_ref: str
     following_refresh_token_ref: str | None = None
     restrict: str = 'public'
-    followed_artist_limit: int = 12
-    candidate_artist_limit: int = 8
-    max_related_per_artist: int = 8
-    max_related_per_illust: int = 8
-    max_seed_artists: int = 40
-    max_candidate_artists: int = 80
+    followed_artist_limit: int = 10
+    candidate_artist_limit: int = 6
+    max_related_per_artist: int = 6
+    max_related_per_illust: int = 6
+    max_seed_artists: int = 90
+    max_candidate_artists: int = 130
+    seed_sample: str = 'random'
     enable_user_recommended: bool = True
     max_user_recommended: int = 30
     enable_tag_search: bool = True
     max_tag_search_tags: int = 5
     max_tag_search_illusts: int = 20
-    top_n_tags: int = 20
-    top_n_pairs: int = 20
-    max_results: int = 50
+    enable_seed_following: bool = True
+    max_seed_following_artists: int = 12
+    max_following_per_seed_artist: int = 18
+    seed_following_sample: str = 'random'
+    top_n_tags: int = 40
+    top_n_pairs: int = 30
+    max_results: int = 60
     allow_ai: bool = False
     allow_r18: bool = False
     min_total_bookmarks: int = 30
-    min_score: float = 0.5
-    diversity_primary_tag_limit: int = 2
+    min_score: float = 0.28
+    diversity_primary_tag_limit: int = 3
+    min_local_illusts: int = 2
+    require_tag_overlap: bool = True
+    max_genre_fraction: float = 0.34
     persist_run: bool = True
     mode: str = 'live-heuristic'
 
@@ -70,41 +79,94 @@ class LiveRecommendationPipeline:
         self.candidate_service = RelatedArtistCandidateService(repository=repository, pixiv_client=pixiv_client)
         self.rank_service = HeuristicArtistRankService(repository=repository)
 
-    def run(self, request: LiveRecommendationRequest) -> LiveRecommendationResult:
+    def run(
+        self,
+        request: LiveRecommendationRequest,
+        *,
+        on_progress: ProgressCallback | None = None,
+    ) -> LiveRecommendationResult:
+        emit(
+            on_progress,
+            stage='pipeline',
+            event='start',
+            message=f'live-recommend seed={request.seed_user_id} mode={request.mode}',
+            seed_user_id=request.seed_user_id,
+            mode=request.mode,
+            max_seed_artists=request.max_seed_artists,
+            max_candidate_artists=request.max_candidate_artists,
+        )
+
         following_token_ref = request.following_refresh_token_ref or request.refresh_token_ref
+        emit(on_progress, stage='pipeline', event='info', message='stage 1/6 following_sync (mother preferred)')
         following_result = self.following_sync_service.sync_following(
             seed_user_id=request.seed_user_id,
             refresh_token_ref=following_token_ref,
             restrict=request.restrict,
             allow_ai=request.allow_ai,
             allow_r18=request.allow_r18,
+            on_progress=on_progress,
         )
+
+        emit(on_progress, stage='pipeline', event='info', message='stage 2/6 hydrate_followed')
         followed_hydration_result = self.hydration_service.hydrate_followed_artists(
             seed_user_id=request.seed_user_id,
             per_artist_limit=request.followed_artist_limit,
             max_artists=request.max_seed_artists,
+            seed_sample=request.seed_sample,
+            on_progress=on_progress,
+        )
+
+        emit(on_progress, stage='pipeline', event='info', message='stage 3/6 build_profile')
+        emit(
+            on_progress,
+            stage='profile',
+            event='start',
+            message='building taste profile from followed illusts',
         )
         profile_summary = self.profile_service.build_profile(
             seed_user_id=request.seed_user_id,
             top_n_tags=request.top_n_tags,
             top_n_pairs=request.top_n_pairs,
         )
+        emit(
+            on_progress,
+            stage='profile',
+            event='done',
+            message=f'profile artists={profile_summary.artist_count} top_tags={len(profile_summary.top_tags)}',
+            artist_count=profile_summary.artist_count,
+            top_tag_count=len(profile_summary.top_tags),
+        )
+
+        emit(on_progress, stage='pipeline', event='info', message='stage 4/6 build_candidates')
         candidate_result = self.candidate_service.build_candidates(
             seed_user_id=request.seed_user_id,
             max_related_per_artist=request.max_related_per_artist,
             max_related_per_illust=request.max_related_per_illust,
             max_seed_artists=request.max_seed_artists,
+            seed_sample=request.seed_sample,
             enable_user_recommended=request.enable_user_recommended,
             max_user_recommended=request.max_user_recommended,
             enable_tag_search=request.enable_tag_search,
             max_tag_search_tags=request.max_tag_search_tags,
             max_tag_search_illusts=request.max_tag_search_illusts,
+            enable_seed_following=request.enable_seed_following,
+            max_seed_following_artists=request.max_seed_following_artists,
+            max_following_per_seed_artist=request.max_following_per_seed_artist,
+            seed_following_sample=request.seed_following_sample,
+            on_progress=on_progress,
         )
+
+        emit(on_progress, stage='pipeline', event='info', message='stage 5/6 hydrate_candidates')
         candidate_hydration_result = self.hydration_service.hydrate_candidate_artists(
             seed_user_id=request.seed_user_id,
             per_artist_limit=request.candidate_artist_limit,
             max_artists=request.max_candidate_artists,
+            seed_sample=request.seed_sample,
+            on_progress=on_progress,
         )
+
+        emit(on_progress, stage='pipeline', event='info', message='stage 6/6 rank_from_store')
+        emit(on_progress, stage='rank', event='start', message='ranking candidates')
         ranked_result = self.rank_service.rank_from_store(
             seed_user_id=request.seed_user_id,
             max_results=request.max_results,
@@ -113,6 +175,18 @@ class LiveRecommendationPipeline:
             min_total_bookmarks=request.min_total_bookmarks,
             min_score=request.min_score,
             diversity_primary_tag_limit=request.diversity_primary_tag_limit,
+            min_local_illusts=request.min_local_illusts,
+            require_tag_overlap=request.require_tag_overlap,
+            max_genre_fraction=request.max_genre_fraction,
+        )
+        emit(
+            on_progress,
+            stage='rank',
+            event='done',
+            current=len(ranked_result.items),
+            total=request.max_results,
+            message=f'ranked items={len(ranked_result.items)}',
+            item_count=len(ranked_result.items),
         )
 
         run = RecommendationRun(
@@ -134,6 +208,9 @@ class LiveRecommendationPipeline:
                         'min_total_bookmarks': request.min_total_bookmarks,
                         'min_score': request.min_score,
                         'diversity_primary_tag_limit': request.diversity_primary_tag_limit,
+                        'min_local_illusts': request.min_local_illusts,
+                        'require_tag_overlap': request.require_tag_overlap,
+                        'max_genre_fraction': request.max_genre_fraction,
                     },
                     'following': {
                         'synced_count': following_result.synced_count,
@@ -167,6 +244,14 @@ class LiveRecommendationPipeline:
                     },
                 },
             )
+        emit(
+            on_progress,
+            stage='pipeline',
+            event='done',
+            message=f'pipeline complete run_id={run.run_id} items={len(ranked_result.items)}',
+            run_id=run.run_id,
+            item_count=len(ranked_result.items),
+        )
         return LiveRecommendationResult(
             run=run,
             following_result=following_result,

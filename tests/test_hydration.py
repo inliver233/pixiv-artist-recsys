@@ -12,13 +12,43 @@ from pixiv_artist_recsys.storage import RecommendationRepository, SQLiteDatabase
 
 
 class FakeHydrationClient:
+    def __init__(self, *, list_tags: list[str] | None = None) -> None:
+        self.list_tags = list_tags
+        self.detail_calls = 0
+
     def fetch_user_illusts(self, *, user_id: int, type_: str = 'illust', offset: int | None = None):
-        return PagedResult(items=[PixivIllustSummary(illust_id=user_id * 10 + 1, user_id=user_id, title=f'illust-{user_id}')], next_url=None)
+        tags = list(self.list_tags) if self.list_tags is not None else []
+        return PagedResult(
+            items=[
+                PixivIllustSummary(
+                    illust_id=user_id * 10 + 1,
+                    user_id=user_id,
+                    title=f'illust-{user_id}',
+                    create_date='2026-03-01T00:00:00+00:00',
+                    total_bookmarks=50,
+                    total_view=500,
+                    total_comments=5,
+                    tags=tags,
+                    ai_type=0,
+                    x_restrict=0,
+                )
+            ],
+            next_url=None,
+        )
 
     def fetch_illust_detail(self, *, illust_id: int):
+        self.detail_calls += 1
         user_id = illust_id // 10
         return PixivIllustDetail(
-            illust=PixivIllustSummary(illust_id=illust_id, user_id=user_id, title=f'illust-{illust_id}', create_date='2026-03-01T00:00:00+00:00', total_bookmarks=50, total_view=500, total_comments=5),
+            illust=PixivIllustSummary(
+                illust_id=illust_id,
+                user_id=user_id,
+                title=f'illust-{illust_id}',
+                create_date='2026-03-01T00:00:00+00:00',
+                total_bookmarks=50,
+                total_view=500,
+                total_comments=5,
+            ),
             tags=['tag-a', 'tag-b'],
             original_image_url=f'https://i.pximg.net/{illust_id}.jpg',
             page_count=1,
@@ -38,12 +68,33 @@ class HydrationTests(unittest.TestCase):
             repo.upsert_following_edge(seed_user_id=7, artist_user_id=1001)
             repo.upsert_following_edge(seed_user_id=7, artist_user_id=1002)
 
-            result = ArtistIllustHydrationService(repository=repo, pixiv_client=FakeHydrationClient()).hydrate_followed_artists(seed_user_id=7)
+            client = FakeHydrationClient()
+            result = ArtistIllustHydrationService(repository=repo, pixiv_client=client).hydrate_followed_artists(seed_user_id=7)
 
             self.assertEqual(result.scope, 'followed')
             self.assertEqual(result.artists_processed, 2)
             self.assertEqual(result.illusts_upserted, 2)
+            self.assertEqual(result.detail_fetches, 2)
+            self.assertEqual(client.detail_calls, 2)
             self.assertEqual(repo.count_rows('illusts'), 2)
+            self.assertEqual(sorted(repo.fetch_artist_tags(artist_user_id=1001)), ['tag-a', 'tag-b'])
+
+    def test_hydrate_skips_detail_when_list_has_tags(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = RecommendationRepository(SQLiteDatabase(Path(tmpdir) / 'hydration-list-only.sqlite3'))
+            repo.initialize()
+            repo.upsert_seed_user(SeedUser(user_id=7, refresh_token_ref='masked:token'))
+            repo.upsert_artist(Artist(user_id=1001, name='artist-1', is_followed=True))
+            repo.upsert_following_edge(seed_user_id=7, artist_user_id=1001)
+
+            client = FakeHydrationClient(list_tags=['tag-a', 'tag-b'])
+            result = ArtistIllustHydrationService(repository=repo, pixiv_client=client).hydrate_followed_artists(seed_user_id=7)
+
+            self.assertEqual(result.artists_processed, 1)
+            self.assertEqual(result.illusts_upserted, 1)
+            self.assertEqual(result.list_only_saves, 1)
+            self.assertEqual(result.detail_fetches, 0)
+            self.assertEqual(client.detail_calls, 0)
             self.assertEqual(sorted(repo.fetch_artist_tags(artist_user_id=1001)), ['tag-a', 'tag-b'])
 
 

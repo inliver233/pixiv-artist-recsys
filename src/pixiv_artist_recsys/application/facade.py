@@ -6,13 +6,15 @@ from pathlib import Path
 from typing import Any, Callable
 
 from ..feedback import FeedbackService
-from ..ingest import ArtistIllustHydrationService, FollowingSyncService
+from ..ingest import ArtistIllustHydrationService, FollowingFileImportService, FollowingSyncService
 from ..pipeline import LiveRecommendationPipeline, LiveRecommendationRequest, RecommendationPipeline, RecommendationRequest
 from ..pixiv import PixivInspectorService
 from ..profile import UserTasteProfileService
 from ..rank import HeuristicArtistRankService
 from ..runtime import AppRuntime
 from ..services import DryRunCandidateRetriever, DryRunIngestService, DryRunProfileService, DryRunRankService
+from ..storage import LibraryDedupeService
+from ..utils.progress import ProgressCallback
 
 
 PixivClientFactory = Callable[..., object]
@@ -148,6 +150,38 @@ class ApplicationFacade:
             payload['output_path'] = str(output_path)
         return payload
 
+    def import_following_file_payload(
+        self,
+        *,
+        seed_user_id: int,
+        path: str | Path,
+    ) -> dict[str, Any]:
+        """Merge a local following export (UID list) into sqlite without calling Pixiv."""
+        self.runtime.prepare()
+        result = FollowingFileImportService(repository=self.runtime.repository).import_file(
+            seed_user_id=seed_user_id,
+            path=path,
+        )
+        return {
+            'seed_user_id': result.seed_user_id,
+            'path': result.path,
+            'lines_read': result.lines_read,
+            'ids_parsed': result.ids_parsed,
+            'unique_ids': result.unique_ids,
+            'edges_before': result.edges_before,
+            'edges_after': result.edges_after,
+            'artists_upserted': result.artists_upserted,
+            'edges_added': result.edges_added,
+        }
+
+    def dedupe_library_payload(self, *, vacuum: bool = True) -> dict[str, Any]:
+        """Remove PK-level duplicates/orphans and align is_followed flags in sqlite."""
+        self.runtime.prepare()
+        result = LibraryDedupeService(database=self.runtime.repository.database).dedupe(vacuum=vacuum)
+        payload = result.to_dict()
+        payload['db_path'] = str(self.runtime.db_path)
+        return payload
+
     def sync_following_payload(
         self,
         *,
@@ -160,6 +194,7 @@ class ApplicationFacade:
         restrict: str = 'public',
         allow_ai: bool | None = None,
         allow_r18: bool | None = None,
+        on_progress: ProgressCallback | None = None,
     ) -> dict[str, Any]:
         # Prefer mother following token when configured; fall back to ops refresh/access.
         mother_refresh = AppRuntime.resolve_following_refresh_token(following_refresh_token)
@@ -194,6 +229,7 @@ class ApplicationFacade:
             restrict=restrict,
             allow_ai=settings.allow_ai if allow_ai is None else allow_ai,
             allow_r18=settings.allow_r18 if allow_r18 is None else allow_r18,
+            on_progress=on_progress,
         )
         return {
             'seed_user_id': result.seed_user_id,
@@ -213,8 +249,10 @@ class ApplicationFacade:
         access_token: str | None = None,
         per_artist_limit: int = 8,
         max_artists: int | None = 40,
+        seed_sample: str = 'random',
         sync_following: bool = True,
         restrict: str = 'public',
+        on_progress: ProgressCallback | None = None,
     ) -> dict[str, Any]:
         pixiv_client = self._build_pixiv_client(
             seed_user_id=seed_user_id,
@@ -231,6 +269,7 @@ class ApplicationFacade:
                 seed_user_id=seed_user_id,
                 refresh_token_ref=AppRuntime.resolve_refresh_token_ref(refresh_token=refresh_token, access_token=access_token),
                 restrict=restrict,
+                on_progress=on_progress,
             )
             following_synced = following_result.synced_count
         result = ArtistIllustHydrationService(
@@ -240,6 +279,8 @@ class ApplicationFacade:
             seed_user_id=seed_user_id,
             per_artist_limit=per_artist_limit,
             max_artists=max_artists,
+            seed_sample=seed_sample,
+            on_progress=on_progress,
         )
         return {
             'seed_user_id': result.seed_user_id,
@@ -248,6 +289,7 @@ class ApplicationFacade:
             'illusts_upserted': result.illusts_upserted,
             'per_artist_limit': per_artist_limit,
             'max_artists': max_artists,
+            'seed_sample': seed_sample,
             'sync_following': sync_following,
         }
 
@@ -260,6 +302,8 @@ class ApplicationFacade:
         access_token: str | None = None,
         per_artist_limit: int = 5,
         max_artists: int | None = 80,
+        seed_sample: str = 'random',
+        on_progress: ProgressCallback | None = None,
     ) -> dict[str, Any]:
         pixiv_client = self._build_pixiv_client(
             seed_user_id=seed_user_id,
@@ -274,6 +318,8 @@ class ApplicationFacade:
             seed_user_id=seed_user_id,
             per_artist_limit=per_artist_limit,
             max_artists=max_artists,
+            seed_sample=seed_sample,
+            on_progress=on_progress,
         )
         return {
             'seed_user_id': result.seed_user_id,
@@ -282,6 +328,7 @@ class ApplicationFacade:
             'illusts_upserted': result.illusts_upserted,
             'per_artist_limit': per_artist_limit,
             'max_artists': max_artists,
+            'seed_sample': seed_sample,
         }
 
     def build_candidates_payload(
@@ -293,12 +340,18 @@ class ApplicationFacade:
         access_token: str | None = None,
         max_related_per_artist: int = 5,
         max_related_per_illust: int = 5,
-        max_seed_artists: int = 40,
+        max_seed_artists: int = 90,
+        seed_sample: str = 'random',
         enable_user_recommended: bool = True,
         max_user_recommended: int = 30,
         enable_tag_search: bool = True,
         max_tag_search_tags: int = 5,
         max_tag_search_illusts: int = 20,
+        enable_seed_following: bool = True,
+        max_seed_following_artists: int = 12,
+        max_following_per_seed_artist: int = 18,
+        seed_following_sample: str = 'random',
+        on_progress: ProgressCallback | None = None,
     ) -> dict[str, Any]:
         from ..candidate import RelatedArtistCandidateService
 
@@ -316,19 +369,30 @@ class ApplicationFacade:
             max_related_per_artist=max_related_per_artist,
             max_related_per_illust=max_related_per_illust,
             max_seed_artists=max_seed_artists,
+            seed_sample=seed_sample,
             enable_user_recommended=enable_user_recommended,
             max_user_recommended=max_user_recommended,
             enable_tag_search=enable_tag_search,
             max_tag_search_tags=max_tag_search_tags,
             max_tag_search_illusts=max_tag_search_illusts,
+            enable_seed_following=enable_seed_following,
+            max_seed_following_artists=max_seed_following_artists,
+            max_following_per_seed_artist=max_following_per_seed_artist,
+            seed_following_sample=seed_following_sample,
+            on_progress=on_progress,
         )
         return {
             'seed_user_id': result.seed_user_id,
             'candidate_count': result.candidate_count,
             'evidence_count': result.evidence_count,
             'max_seed_artists': max_seed_artists,
+            'seed_sample': seed_sample,
             'enable_user_recommended': enable_user_recommended,
             'enable_tag_search': enable_tag_search,
+            'enable_seed_following': enable_seed_following,
+            'max_seed_following_artists': max_seed_following_artists,
+            'max_following_per_seed_artist': max_following_per_seed_artist,
+            'seed_following_sample': seed_following_sample,
         }
 
     def build_profile_payload(
@@ -364,9 +428,18 @@ class ApplicationFacade:
         allow_r18: bool | None = None,
         min_bookmarks: int | None = None,
         min_score: float | None = None,
+        min_local_illusts: int | None = None,
+        require_tag_overlap: bool | None = None,
+        max_genre_fraction: float | None = None,
     ) -> dict[str, Any]:
         settings = self.runtime.settings.recommendation
-        result = HeuristicArtistRankService(repository=self.runtime.repository).rank_from_store(
+        resolved_min_local = settings.min_local_illusts if min_local_illusts is None else min_local_illusts
+        resolved_require_overlap = settings.require_tag_overlap if require_tag_overlap is None else require_tag_overlap
+        resolved_genre_frac = settings.max_genre_fraction if max_genre_fraction is None else max_genre_fraction
+        result = HeuristicArtistRankService(
+            repository=self.runtime.repository,
+            max_genre_fraction=resolved_genre_frac,
+        ).rank_from_store(
             seed_user_id=seed_user_id,
             max_results=max_results,
             allow_ai=allow_ai,
@@ -374,11 +447,19 @@ class ApplicationFacade:
             min_total_bookmarks=settings.min_bookmarks if min_bookmarks is None else min_bookmarks,
             min_score=settings.min_score if min_score is None else min_score,
             diversity_primary_tag_limit=diversity_per_tag,
+            min_local_illusts=resolved_min_local,
+            require_tag_overlap=resolved_require_overlap,
+            max_genre_fraction=resolved_genre_frac,
         )
         return {
             'seed_user_id': result.seed_user_id,
             'item_count': len(result.items),
             'diversity_per_tag': diversity_per_tag,
+            'filters': {
+                'min_local_illusts': resolved_min_local,
+                'require_tag_overlap': resolved_require_overlap,
+                'max_genre_fraction': resolved_genre_frac,
+            },
             'items': self._ranked_items_payload(result.items),
         }
 
@@ -392,26 +473,35 @@ class ApplicationFacade:
         following_refresh_token: str | None = None,
         following_token_key: str | None = None,
         restrict: str = 'public',
-        followed_artist_limit: int = 8,
-        candidate_artist_limit: int = 5,
-        max_related_per_artist: int = 5,
-        max_related_per_illust: int = 5,
-        max_seed_artists: int = 40,
-        max_candidate_artists: int = 80,
+        followed_artist_limit: int = 10,
+        candidate_artist_limit: int = 6,
+        max_related_per_artist: int = 6,
+        max_related_per_illust: int = 6,
+        max_seed_artists: int = 90,
+        max_candidate_artists: int = 130,
+        seed_sample: str = 'random',
         enable_user_recommended: bool = True,
         max_user_recommended: int = 30,
         enable_tag_search: bool = True,
         max_tag_search_tags: int = 5,
         max_tag_search_illusts: int = 20,
-        top_n_tags: int = 20,
-        top_n_pairs: int = 20,
+        enable_seed_following: bool = True,
+        max_seed_following_artists: int = 12,
+        max_following_per_seed_artist: int = 18,
+        seed_following_sample: str = 'random',
+        top_n_tags: int = 40,
+        top_n_pairs: int = 30,
         max_results: int | None = None,
         allow_ai: bool | None = None,
         allow_r18: bool | None = None,
         min_bookmarks: int | None = None,
         min_score: float | None = None,
         diversity_per_tag: int | None = None,
+        min_local_illusts: int | None = None,
+        require_tag_overlap: bool | None = None,
+        max_genre_fraction: float | None = None,
         stop_words: list[str] | set[str] | None = None,
+        on_progress: ProgressCallback | None = None,
     ) -> dict[str, Any]:
         pixiv_client = self._build_pixiv_client(
             seed_user_id=seed_user_id,
@@ -432,6 +522,9 @@ class ApplicationFacade:
                 following_refresh_token=resolved_following_refresh
             )
         settings = self.runtime.settings.recommendation
+        resolved_min_local = settings.min_local_illusts if min_local_illusts is None else min_local_illusts
+        resolved_require_overlap = settings.require_tag_overlap if require_tag_overlap is None else require_tag_overlap
+        resolved_genre_frac = settings.max_genre_fraction if max_genre_fraction is None else max_genre_fraction
         result = LiveRecommendationPipeline(
             repository=self.runtime.repository,
             pixiv_client=pixiv_client,
@@ -449,11 +542,16 @@ class ApplicationFacade:
                 max_related_per_illust=max_related_per_illust,
                 max_seed_artists=max_seed_artists,
                 max_candidate_artists=max_candidate_artists,
+                seed_sample=seed_sample,
                 enable_user_recommended=enable_user_recommended,
                 max_user_recommended=max_user_recommended,
                 enable_tag_search=enable_tag_search,
                 max_tag_search_tags=max_tag_search_tags,
                 max_tag_search_illusts=max_tag_search_illusts,
+                enable_seed_following=enable_seed_following,
+                max_seed_following_artists=max_seed_following_artists,
+                max_following_per_seed_artist=max_following_per_seed_artist,
+                seed_following_sample=seed_following_sample,
                 top_n_tags=top_n_tags,
                 top_n_pairs=top_n_pairs,
                 max_results=settings.max_results if max_results is None else max_results,
@@ -462,7 +560,11 @@ class ApplicationFacade:
                 min_total_bookmarks=settings.min_bookmarks if min_bookmarks is None else min_bookmarks,
                 min_score=settings.min_score if min_score is None else min_score,
                 diversity_primary_tag_limit=settings.diversity_per_tag if diversity_per_tag is None else diversity_per_tag,
-            )
+                min_local_illusts=resolved_min_local,
+                require_tag_overlap=resolved_require_overlap,
+                max_genre_fraction=resolved_genre_frac,
+            ),
+            on_progress=on_progress,
         )
         resolved_allow_ai = settings.allow_ai if allow_ai is None else allow_ai
         resolved_allow_r18 = settings.allow_r18 if allow_r18 is None else allow_r18
@@ -480,6 +582,9 @@ class ApplicationFacade:
                 'min_bookmarks': resolved_min_bookmarks,
                 'min_score': resolved_min_score,
                 'diversity_per_tag': resolved_diversity,
+                'min_local_illusts': resolved_min_local,
+                'require_tag_overlap': resolved_require_overlap,
+                'max_genre_fraction': resolved_genre_frac,
             },
             'token_roles': {
                 'following_uses_mother': bool(resolved_following_refresh),

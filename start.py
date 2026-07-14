@@ -19,7 +19,9 @@ import json
 import os
 import sqlite3
 import sys
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -28,39 +30,51 @@ REPO_ROOT = Path(__file__).resolve().parent
 DEFAULT_DOWNLOADER = Path(r'E:/pixiv-download-修改版本/pixiv-downloader-personal')
 SRC = REPO_ROOT / 'src'
 
-# ~2600 following: seed/candidate caps avoid unbounded API; following sync itself still full-syncs.
+# ~2600 following / single child token: depth + steady pacing over concurrency.
+# following sync itself still full-syncs; seed/candidate caps avoid unbounded API.
 PRESETS: dict[str, dict[str, Any]] = {
     'quick': {
         'label': '日常快速（少 API）',
-        'followed_artist_limit': 5,
-        'candidate_artist_limit': 3,
+        'followed_artist_limit': 6,
+        'candidate_artist_limit': 4,
         'max_related_per_artist': 4,
         'max_related_per_illust': 4,
-        'max_seed_artists': 30,
-        'max_candidate_artists': 50,
+        'max_seed_artists': 40,
+        'max_candidate_artists': 70,
         'max_user_recommended': 20,
         'max_tag_search_tags': 3,
         'max_tag_search_illusts': 12,
-        'max_results': 30,
+        # Seed-artist public following expand (partial sample, not full crawl)
+        'enable_seed_following': True,
+        'max_seed_following_artists': 6,
+        'max_following_per_seed_artist': 12,
+        'seed_sample': 'random',
+        'seed_following_sample': 'random',
+        'max_results': 40,
         'min_bookmarks': 30,
-        'min_score': 0.5,
+        'min_score': 0.28,
         'diversity_per_tag': 2,
     },
     'daily': {
-        'label': '日常推荐（约 2600 关注默认）',
-        'followed_artist_limit': 8,
-        'candidate_artist_limit': 5,
-        'max_related_per_artist': 5,
-        'max_related_per_illust': 5,
-        'max_seed_artists': 60,
-        'max_candidate_artists': 100,
+        'label': '精准日常（约 2600 关注默认）',
+        'followed_artist_limit': 10,
+        'candidate_artist_limit': 6,
+        'max_related_per_artist': 6,
+        'max_related_per_illust': 6,
+        'max_seed_artists': 90,
+        'max_candidate_artists': 130,
         'max_user_recommended': 30,
         'max_tag_search_tags': 5,
         'max_tag_search_illusts': 20,
-        'max_results': 50,
+        'enable_seed_following': True,
+        'max_seed_following_artists': 12,
+        'max_following_per_seed_artist': 18,
+        'seed_sample': 'random',
+        'seed_following_sample': 'random',
+        'max_results': 60,
         'min_bookmarks': 30,
-        'min_score': 0.5,
-        'diversity_per_tag': 2,
+        'min_score': 0.28,
+        'diversity_per_tag': 3,
     },
     'deep': {
         'label': '深度扫描（更慢、更多召回）',
@@ -68,14 +82,19 @@ PRESETS: dict[str, dict[str, Any]] = {
         'candidate_artist_limit': 8,
         'max_related_per_artist': 8,
         'max_related_per_illust': 8,
-        'max_seed_artists': 120,
-        'max_candidate_artists': 180,
+        'max_seed_artists': 140,
+        'max_candidate_artists': 200,
         'max_user_recommended': 40,
         'max_tag_search_tags': 8,
         'max_tag_search_illusts': 30,
+        'enable_seed_following': True,
+        'max_seed_following_artists': 18,
+        'max_following_per_seed_artist': 24,
+        'seed_sample': 'random',
+        'seed_following_sample': 'random',
         'max_results': 80,
         'min_bookmarks': 20,
-        'min_score': 0.4,
+        'min_score': 0.24,
         'diversity_per_tag': 3,
     },
 }
@@ -424,6 +443,115 @@ def _build_facade():
     return ApplicationFacade(runtime=runtime)
 
 
+STAGE_LABELS: dict[str, str] = {
+    'pipeline': '总流水线',
+    'following_sync': '1/6 同步关注 (母号)',
+    'hydrate_followed': '2/6 水合作者作品',
+    'profile': '3/6 构建画像',
+    'candidates': '4/6 召回候选',
+    'hydrate_candidate': '5/6 水合候选作品',
+    'rank': '6/6 排序推荐',
+}
+
+
+@dataclass
+class ProgressTui:
+    """Live terminal progress for long pipeline stages (PowerShell-friendly)."""
+
+    quiet: bool = False
+    width: int = 28
+    _started_at: float = field(default_factory=time.monotonic, init=False)
+    _stage_started: dict[str, float] = field(default_factory=dict, init=False)
+    _last_stage: str = field(default='', init=False)
+    _progress_open: bool = field(default=False, init=False)
+    _event_count: int = field(default=0, init=False)
+
+    def __call__(self, event: Any) -> None:
+        self.handle(event)
+
+    def handle(self, event: Any) -> None:
+        if self.quiet:
+            return
+        stage = str(getattr(event, 'stage', '') or '')
+        kind = str(getattr(event, 'event', '') or '')
+        current = int(getattr(event, 'current', 0) or 0)
+        total = int(getattr(event, 'total', 0) or 0)
+        message = str(getattr(event, 'message', '') or '')
+        self._event_count += 1
+        now = time.monotonic()
+        if stage and stage not in self._stage_started:
+            self._stage_started[stage] = now
+
+        if kind in ('start', 'info', 'done'):
+            self._finish_progress_line()
+            label = STAGE_LABELS.get(stage, stage or 'progress')
+            stamp = datetime.now().strftime('%H:%M:%S')
+            elapsed = self._fmt_elapsed(now - self._started_at)
+            stage_elapsed = self._fmt_elapsed(now - self._stage_started.get(stage, now))
+            if kind == 'start':
+                print(f'[{stamp} +{elapsed}] > {label}', flush=True)
+                if message:
+                    print(f'           {message}', flush=True)
+            elif kind == 'info':
+                print(f'[{stamp} +{elapsed}] - {label}: {message}', flush=True)
+            else:  # done
+                print(f'[{stamp} +{elapsed}] ok {label} ({stage_elapsed}) {message}', flush=True)
+            self._last_stage = stage
+            return
+
+        # progress: rewrite single line when possible
+        label = STAGE_LABELS.get(stage, stage or 'progress')
+        stamp = datetime.now().strftime('%H:%M:%S')
+        bar = self._bar(current, total)
+        if total > 0:
+            counter = f'{current}/{total}'
+        else:
+            counter = f'{current}'
+        line = f'[{stamp}] {label} {bar} {counter}  {message}'
+        # Cap length for narrow consoles; keep \r rewrite short.
+        if len(line) > 140:
+            line = line[:137] + '...'
+        if sys.stdout.isatty():
+            sys.stdout.write('\r' + line.ljust(140)[:140])
+            sys.stdout.flush()
+            self._progress_open = True
+        else:
+            # Non-TTY (redirected): print every N events so logs stay useful without flooding.
+            if self._event_count % 5 == 0 or current == total:
+                print(line, flush=True)
+
+    def _finish_progress_line(self) -> None:
+        if self._progress_open and sys.stdout.isatty():
+            sys.stdout.write('\n')
+            sys.stdout.flush()
+        self._progress_open = False
+
+    def close(self) -> None:
+        self._finish_progress_line()
+        if self.quiet:
+            return
+        total = self._fmt_elapsed(time.monotonic() - self._started_at)
+        print(f'--- 进度结束 总耗时 {total} 事件数={self._event_count} ---', flush=True)
+
+    @staticmethod
+    def _fmt_elapsed(seconds: float) -> str:
+        seconds = max(0, int(seconds))
+        m, s = divmod(seconds, 60)
+        h, m = divmod(m, 60)
+        if h:
+            return f'{h:d}:{m:02d}:{s:02d}'
+        return f'{m:d}:{s:02d}'
+
+    def _bar(self, current: int, total: int) -> str:
+        if total <= 0:
+            # indeterminate spinner-ish ticks
+            ticks = '|/-\\'
+            return f'[{ticks[self._event_count % 4]}{"·" * (self.width - 1)}]'
+        ratio = min(1.0, max(0.0, current / float(total)))
+        filled = int(round(self.width * ratio))
+        return '[' + '#' * filled + '-' * (self.width - filled) + f'] {ratio * 100:5.1f}%'
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     report = build_status(downloader_root=Path(args.downloader_root), seed_user_id=args.seed_user_id)
     if args.json:
@@ -492,10 +620,12 @@ def cmd_run(args: argparse.Namespace) -> int:
         f"    seed={seed} max_seed_artists={preset['max_seed_artists']} "
         f"max_candidate_artists={preset['max_candidate_artists']} max_results={preset['max_results']}"
     )
-    print('    母号 token 仅用于 following sync；子号用于其余 API。关注全量同步可能较久。')
+    print('    母号 token 仅用于 following sync；子号用于其余 API。')
+    print('    关注全量同步 (~2600) 可能需数分钟，下方会持续刷新进度。')
     print()
 
     facade = _build_facade()
+    tui = ProgressTui(quiet=bool(args.json))
     try:
         payload = facade.full_recommend_payload(
             seed_user_id=seed,
@@ -507,17 +637,25 @@ def cmd_run(args: argparse.Namespace) -> int:
             max_related_per_illust=int(preset['max_related_per_illust']),
             max_seed_artists=int(preset['max_seed_artists']),
             max_candidate_artists=int(preset['max_candidate_artists']),
+            seed_sample=str(preset.get('seed_sample', 'random')),
             max_user_recommended=int(preset['max_user_recommended']),
             max_tag_search_tags=int(preset['max_tag_search_tags']),
             max_tag_search_illusts=int(preset['max_tag_search_illusts']),
+            enable_seed_following=bool(preset['enable_seed_following']),
+            max_seed_following_artists=int(preset['max_seed_following_artists']),
+            max_following_per_seed_artist=int(preset['max_following_per_seed_artist']),
+            seed_following_sample=str(preset['seed_following_sample']),
             max_results=int(preset['max_results']),
             min_bookmarks=int(preset['min_bookmarks']),
             min_score=float(preset['min_score']),
             diversity_per_tag=int(preset['diversity_per_tag']),
+            on_progress=tui,
         )
     except Exception as exc:  # noqa: BLE001 — surface live failures cleanly
+        tui.close()
         print(f'RUN FAILED: {type(exc).__name__}: {exc}', file=sys.stderr)
         return 1
+    tui.close()
 
     out_dir = REPO_ROOT / 'data' / 'local' / 'exports'
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -564,41 +702,44 @@ def cmd_steps(args: argparse.Namespace) -> int:
     facade = _build_facade()
     following_edges = int(report.payload['database'].get('following_edges') or 0)
     skip_sync = args.skip_sync or (args.skip_sync_if_present and following_edges > 0)
+    tui = ProgressTui(quiet=bool(args.json))
 
     steps_done: list[dict[str, Any]] = []
 
     def note(name: str, payload: dict[str, Any]) -> None:
         compact = {k: payload.get(k) for k in list(payload)[:12]}
         steps_done.append({'step': name, 'payload': compact})
-        print(f'--- {name} ---')
-        print(json.dumps(compact, ensure_ascii=False, indent=2))
+        print(f'--- {name} ---', flush=True)
+        print(json.dumps(compact, ensure_ascii=False, indent=2), flush=True)
 
     try:
         if not skip_sync:
-            print('>>> step: sync-following (mother token preferred)')
+            print('>>> step: sync-following (mother token preferred)', flush=True)
             note(
                 'sync-following',
-                facade.sync_following_payload(seed_user_id=seed),
+                facade.sync_following_payload(seed_user_id=seed, on_progress=tui),
             )
         else:
-            print(f'>>> skip sync-following (following_edges={following_edges})')
+            print(f'>>> skip sync-following (following_edges={following_edges})', flush=True)
             steps_done.append({'step': 'sync-following', 'skipped': True, 'following_edges': following_edges})
 
-        print('>>> step: hydrate-followed-illusts (child, no re-sync)')
+        print('>>> step: hydrate-followed-illusts (child, no re-sync)', flush=True)
         note(
             'hydrate-followed-illusts',
             facade.hydrate_followed_illusts_payload(
                 seed_user_id=seed,
                 per_artist_limit=int(preset['followed_artist_limit']),
                 max_artists=int(preset['max_seed_artists']),
+                seed_sample=str(preset.get('seed_sample', 'random')),
                 sync_following=False,
+                on_progress=tui,
             ),
         )
 
-        print('>>> step: build-profile')
+        print('>>> step: build-profile', flush=True)
         note('build-profile', facade.build_profile_payload(seed_user_id=seed))
 
-        print('>>> step: build-candidates (child)')
+        print('>>> step: build-candidates (child)', flush=True)
         note(
             'build-candidates',
             facade.build_candidates_payload(
@@ -606,23 +747,31 @@ def cmd_steps(args: argparse.Namespace) -> int:
                 max_related_per_artist=int(preset['max_related_per_artist']),
                 max_related_per_illust=int(preset['max_related_per_illust']),
                 max_seed_artists=int(preset['max_seed_artists']),
+                seed_sample=str(preset.get('seed_sample', 'random')),
                 max_user_recommended=int(preset['max_user_recommended']),
                 max_tag_search_tags=int(preset['max_tag_search_tags']),
                 max_tag_search_illusts=int(preset['max_tag_search_illusts']),
+                enable_seed_following=bool(preset['enable_seed_following']),
+                max_seed_following_artists=int(preset['max_seed_following_artists']),
+                max_following_per_seed_artist=int(preset['max_following_per_seed_artist']),
+                seed_following_sample=str(preset['seed_following_sample']),
+                on_progress=tui,
             ),
         )
 
-        print('>>> step: hydrate-candidate-illusts (child)')
+        print('>>> step: hydrate-candidate-illusts (child)', flush=True)
         note(
             'hydrate-candidate-illusts',
             facade.hydrate_candidate_illusts_payload(
                 seed_user_id=seed,
                 per_artist_limit=int(preset['candidate_artist_limit']),
                 max_artists=int(preset['max_candidate_artists']),
+                seed_sample=str(preset.get('seed_sample', 'random')),
+                on_progress=tui,
             ),
         )
 
-        print('>>> step: recommend-from-store')
+        print('>>> step: recommend-from-store', flush=True)
         rec = facade.recommend_from_store_payload(
             seed_user_id=seed,
             max_results=int(preset['max_results']),
@@ -636,9 +785,11 @@ def cmd_steps(args: argparse.Namespace) -> int:
         out_dir.mkdir(parents=True, exist_ok=True)
         out_path = out_dir / f'steps-{seed}-recommend.json'
         out_path.write_text(json.dumps(rec, ensure_ascii=False, indent=2), encoding='utf-8')
+        tui.close()
         print(json.dumps({'ok': True, 'output_path': str(out_path), 'item_count': rec.get('item_count'), 'steps': [s['step'] for s in steps_done]}, ensure_ascii=False, indent=2))
         return 0
     except Exception as exc:  # noqa: BLE001
+        tui.close()
         print(f'STEPS FAILED at after {steps_done[-1]["step"] if steps_done else "start"}: {type(exc).__name__}: {exc}', file=sys.stderr)
         return 1
 

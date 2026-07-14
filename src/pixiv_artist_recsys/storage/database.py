@@ -27,3 +27,14 @@ class SQLiteDatabase:
         with self.connect() as conn:
             for statement in SCHEMA_STATEMENTS:
                 conn.execute(statement)
+            self._migrate_illust_columns(conn)
+
+    @staticmethod
+    def _migrate_illust_columns(conn: sqlite3.Connection) -> None:
+        """Add columns introduced after first deploy without rebuilding the DB."""
+        rows = conn.execute("PRAGMA table_info(illusts)").fetchall()
+        existing = {str(row[1]) for row in rows}
+        if 'illust_type' not in existing:
+            conn.execute("ALTER TABLE illusts ADD COLUMN illust_type TEXT NOT NULL DEFAULT ''")
+        if 'page_count' not in existing:
+            conn.execute("ALTER TABLE illusts ADD COLUMN page_count INTEGER NOT NULL DEFAULT 1")
