@@ -8,11 +8,12 @@
 - [ ] `python -m pixiv_artist_recsys init-db`
 - [ ] `python -m pixiv_artist_recsys show-config` 路径符合预期
 - [ ] （可选）配置 `PIXIV_ARTIST_RECSYS_PROXY_URLS` 后 `show-proxy-state`
-- [ ] `$env:PIXIV_REFRESH_TOKEN = '...'`（本机 shell，勿提交）
+- [ ] `$env:PIXIV_ARTIST_RECSYS_REFRESH_TOKEN = '...'`（本机 shell，勿提交；别名 `PIXIV_REFRESH_TOKEN` 亦可）
+- [ ] （可选）`$env:PIXIV_ARTIST_RECSYS_PROXY_URLS = 'http://host:port,...'`
 
 ## 1. 鉴权与轮换
 
-- [ ] `sync-following --seed-user-id <id> --refresh-token $env:PIXIV_REFRESH_TOKEN` 成功
+- [ ] `sync-following --seed-user-id <id> --refresh-token $env:PIXIV_ARTIST_RECSYS_REFRESH_TOKEN` 成功
 - [ ] 再次运行同一命令：若 Pixiv 已轮换 refresh，库内应有新 rotated；旧 CLI 值仍能刷新
 - [ ] 故意传错误 refresh：错误信息含 status / body 摘要，而非裸 traceback 不明原因
 

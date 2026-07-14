@@ -69,11 +69,12 @@ python -m pixiv_artist_recsys full-recommend `
 适合关注数较多、需要断点续跑：
 
 ```powershell
-python -m pixiv_artist_recsys sync-following --seed-user-id <id> --refresh-token $env:PIXIV_REFRESH_TOKEN
-python -m pixiv_artist_recsys hydrate-followed-illusts --seed-user-id <id> --refresh-token $env:PIXIV_REFRESH_TOKEN --max-artists 40 --no-sync-following
+# Token: --refresh-token 或环境变量 PIXIV_ARTIST_RECSYS_REFRESH_TOKEN（别名 PIXIV_REFRESH_TOKEN 亦可）
+python -m pixiv_artist_recsys sync-following --seed-user-id <id> --refresh-token $env:PIXIV_ARTIST_RECSYS_REFRESH_TOKEN
+python -m pixiv_artist_recsys hydrate-followed-illusts --seed-user-id <id> --refresh-token $env:PIXIV_ARTIST_RECSYS_REFRESH_TOKEN --max-artists 40 --no-sync-following
 python -m pixiv_artist_recsys build-profile --seed-user-id <id>
-python -m pixiv_artist_recsys build-candidates --seed-user-id <id> --refresh-token $env:PIXIV_REFRESH_TOKEN --max-seed-artists 40
-python -m pixiv_artist_recsys hydrate-candidate-illusts --seed-user-id <id> --refresh-token $env:PIXIV_REFRESH_TOKEN --max-artists 80
+python -m pixiv_artist_recsys build-candidates --seed-user-id <id> --refresh-token $env:PIXIV_ARTIST_RECSYS_REFRESH_TOKEN --max-seed-artists 40
+python -m pixiv_artist_recsys hydrate-candidate-illusts --seed-user-id <id> --refresh-token $env:PIXIV_ARTIST_RECSYS_REFRESH_TOKEN --max-artists 80
 python -m pixiv_artist_recsys recommend-from-store --seed-user-id <id> --max-results 50
 ```
 

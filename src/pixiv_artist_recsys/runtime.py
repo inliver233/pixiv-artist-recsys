@@ -51,12 +51,25 @@ class AppRuntime:
     @staticmethod
     def resolve_access_token(access_token: str | None = None, env: Mapping[str, str] | None = None) -> str:
         env = env or os.environ
-        return (access_token or env.get('PIXIV_ARTIST_RECSYS_ACCESS_TOKEN', '')).strip()
+        if access_token and str(access_token).strip():
+            return str(access_token).strip()
+        for key in ('PIXIV_ARTIST_RECSYS_ACCESS_TOKEN', 'PIXIV_ACCESS_TOKEN'):
+            value = str(env.get(key, '') or '').strip()
+            if value:
+                return value
+        return ''
 
     @staticmethod
     def resolve_refresh_token(refresh_token: str | None = None, env: Mapping[str, str] | None = None) -> str:
         env = env or os.environ
-        return (refresh_token or env.get('PIXIV_ARTIST_RECSYS_REFRESH_TOKEN', '')).strip()
+        if refresh_token and str(refresh_token).strip():
+            return str(refresh_token).strip()
+        # Prefer project-prefixed name; also accept short alias used in docs/shells.
+        for key in ('PIXIV_ARTIST_RECSYS_REFRESH_TOKEN', 'PIXIV_REFRESH_TOKEN'):
+            value = str(env.get(key, '') or '').strip()
+            if value:
+                return value
+        return ''
 
     @classmethod
     def resolve_refresh_token_ref(

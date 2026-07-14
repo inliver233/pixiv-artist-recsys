@@ -17,16 +17,17 @@ sync-following
 
 ## 2. 命令速查（PowerShell）
 
-把 `<id>` / `$env:PIXIV_REFRESH_TOKEN` 换成本地值。**不要**把真实 token 写进仓库或 issue。
+把 `<id>` / `$env:PIXIV_ARTIST_RECSYS_REFRESH_TOKEN` 换成本地值。**不要**把真实 token 写进仓库或 issue。  
+（别名 `PIXIV_REFRESH_TOKEN` 也被 runtime 接受；`.env` 文件不会自动加载，需 export 或传 CLI。）
 
 ```powershell
 # 1) 只同步关注
 python -m pixiv_artist_recsys sync-following `
-  --seed-user-id <id> --refresh-token $env:PIXIV_REFRESH_TOKEN
+  --seed-user-id <id> --refresh-token $env:PIXIV_ARTIST_RECSYS_REFRESH_TOKEN
 
 # 2) 补关注画师代表作（可跳过再同步）
 python -m pixiv_artist_recsys hydrate-followed-illusts `
-  --seed-user-id <id> --refresh-token $env:PIXIV_REFRESH_TOKEN `
+  --seed-user-id <id> --refresh-token $env:PIXIV_ARTIST_RECSYS_REFRESH_TOKEN `
   --per-artist-limit 8 --max-artists 40 --no-sync-following
 
 # 3) 本地画像（纯库内）
@@ -34,12 +35,12 @@ python -m pixiv_artist_recsys build-profile --seed-user-id <id>
 
 # 4) 多源候选召回
 python -m pixiv_artist_recsys build-candidates `
-  --seed-user-id <id> --refresh-token $env:PIXIV_REFRESH_TOKEN `
+  --seed-user-id <id> --refresh-token $env:PIXIV_ARTIST_RECSYS_REFRESH_TOKEN `
   --max-seed-artists 40
 
 # 5) 候选作品 hydrate
 python -m pixiv_artist_recsys hydrate-candidate-illusts `
-  --seed-user-id <id> --refresh-token $env:PIXIV_REFRESH_TOKEN `
+  --seed-user-id <id> --refresh-token $env:PIXIV_ARTIST_RECSYS_REFRESH_TOKEN `
   --per-artist-limit 5 --max-artists 80
 
 # 6) 纯离线排序

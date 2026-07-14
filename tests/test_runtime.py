@@ -63,6 +63,29 @@ class RuntimeTests(unittest.TestCase):
             self.assertEqual(settings.recommendation.min_score, 1.75)
             self.assertEqual(settings.recommendation.diversity_per_tag, 4)
 
+    def test_resolve_refresh_token_accepts_project_and_alias_env_names(self) -> None:
+        self.assertEqual(
+            AppRuntime.resolve_refresh_token(env={'PIXIV_ARTIST_RECSYS_REFRESH_TOKEN': 'primary-token'}),
+            'primary-token',
+        )
+        self.assertEqual(
+            AppRuntime.resolve_refresh_token(env={'PIXIV_REFRESH_TOKEN': 'alias-token'}),
+            'alias-token',
+        )
+        self.assertEqual(
+            AppRuntime.resolve_refresh_token(
+                env={
+                    'PIXIV_ARTIST_RECSYS_REFRESH_TOKEN': 'primary-token',
+                    'PIXIV_REFRESH_TOKEN': 'alias-token',
+                }
+            ),
+            'primary-token',
+        )
+        self.assertEqual(
+            AppRuntime.resolve_refresh_token(refresh_token='cli-token', env={'PIXIV_REFRESH_TOKEN': 'alias-token'}),
+            'cli-token',
+        )
+
     def test_runtime_settings_payload_serializes_paths_and_nested_settings(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             env = {
