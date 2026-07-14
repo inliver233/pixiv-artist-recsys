@@ -69,20 +69,25 @@ class HeuristicArtistRankService:
             if negative_tag_score >= 0.5:
                 continue
             evidence_score = sum(weight for _, _, weight, _ in evidences)
-            quality_score = self._quality_score(filtered_illusts)
+            quality_score, quality_meta = self._quality_score(filtered_illusts)
             final_score = 0.45 * tag_score + 0.35 * evidence_score + 0.20 * quality_score - 0.30 * negative_tag_score
             if final_score < min_score:
                 continue
             confidence = min(1.0, 0.25 + 0.15 * len(evidences) + 0.1 * min(3, len(filtered_illusts)))
             top_illust_ids = [illust.illust_id for illust in filtered_illusts[:3]]
             top_tags = normalized_tags[:3]
-            reasons = [f"evidence:{source_type}" for source_type, _, _, _ in evidences[:2]]
+            source_types = sorted({source_type for source_type, _, _, _ in evidences})
+            reasons = [f"evidence:{source_type}" for source_type in source_types[:4]]
             if top_tags:
                 reasons.append(f"tags:{','.join(top_tags)}")
             if negative_tag_score > 0:
                 reasons.append(f"negative_penalty:{round(negative_tag_score, 3)}")
             if min_total_bookmarks > 0:
                 reasons.append(f"quality:min_bookmarks>={min_total_bookmarks}")
+            if quality_meta.get('median_bookmarks') is not None:
+                reasons.append(f"quality:median_bookmarks={quality_meta['median_bookmarks']}")
+            if quality_meta.get('consistency') is not None:
+                reasons.append(f"quality:consistency={quality_meta['consistency']}")
             results.append(RecommendationItem(artist=artist, score=round(final_score, 6), confidence=round(confidence, 6), reasons=reasons, top_illust_ids=top_illust_ids))
 
         results.sort(key=lambda item: (-item.score, -item.confidence, item.artist.user_id))
@@ -99,16 +104,46 @@ class HeuristicArtistRankService:
         return str(tag or '').strip().lower().replace(' ', '_')
 
     @staticmethod
-    def _quality_score(illusts) -> float:
+    def _quality_score(illusts) -> tuple[float, dict[str, float | int]]:
         if not illusts:
-            return 0.0
+            return 0.0, {}
+        sample = list(illusts[:8])
+        bookmark_values = [max(0, int(illust.total_bookmarks)) for illust in sample]
+        median_bookmarks = HeuristicArtistRankService._median(bookmark_values)
+        max_bookmarks = max(bookmark_values) if bookmark_values else 0
+        # Penalize one-hit wonders: high max with low median => lower consistency.
+        consistency = 1.0
+        if max_bookmarks > 0:
+            consistency = min(1.0, (median_bookmarks + 1.0) / (max_bookmarks + 1.0))
+            consistency = max(0.2, consistency)
+
         values = []
-        for illust in illusts[:5]:
+        for illust in sample[:5]:
             bookmarks = math.log1p(max(0, illust.total_bookmarks))
             views = math.log1p(max(0, illust.total_view)) * 0.2
             comments = math.log1p(max(0, illust.total_comments)) * 0.3
-            values.append(bookmarks + views + comments)
-        return sum(values) / len(values)
+            ratio = 0.0
+            if illust.total_view > 0:
+                ratio = min(1.5, illust.total_bookmarks / max(1, illust.total_view) * 20.0)
+            values.append(bookmarks + views + comments + ratio * 0.15)
+        mean_engagement = sum(values) / len(values)
+        median_component = math.log1p(median_bookmarks)
+        score = 0.65 * mean_engagement + 0.25 * median_component + 0.10 * (consistency * 5.0)
+        return score, {
+            'median_bookmarks': int(median_bookmarks),
+            'consistency': round(consistency, 3),
+            'max_bookmarks': int(max_bookmarks),
+        }
+
+    @staticmethod
+    def _median(values: list[int]) -> float:
+        if not values:
+            return 0.0
+        ordered = sorted(values)
+        mid = len(ordered) // 2
+        if len(ordered) % 2 == 1:
+            return float(ordered[mid])
+        return (ordered[mid - 1] + ordered[mid]) / 2.0
 
     @staticmethod
     def _apply_diversity(

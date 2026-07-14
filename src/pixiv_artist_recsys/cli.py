@@ -65,6 +65,11 @@ def _add_recommendation_args(parser: argparse.ArgumentParser, *, settings, inclu
     parser.add_argument('--max-related-per-illust', type=int, default=5)
     parser.add_argument('--max-seed-artists', type=int, default=40, help='Cap followed artists used for hydration/candidate seeds')
     parser.add_argument('--max-candidate-artists', type=int, default=80, help='Cap candidate artists to hydrate')
+    parser.add_argument('--enable-user-recommended', action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument('--max-user-recommended', type=int, default=30)
+    parser.add_argument('--enable-tag-search', action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument('--max-tag-search-tags', type=int, default=5)
+    parser.add_argument('--max-tag-search-illusts', type=int, default=20)
     parser.add_argument('--top-n-tags', type=int, default=20)
     parser.add_argument('--top-n-pairs', type=int, default=20)
     parser.add_argument('--max-results', type=int, default=settings.recommendation.max_results)
@@ -316,6 +321,11 @@ def cmd_full_recommend(
     max_related_per_illust: int,
     max_seed_artists: int,
     max_candidate_artists: int,
+    enable_user_recommended: bool,
+    max_user_recommended: int,
+    enable_tag_search: bool,
+    max_tag_search_tags: int,
+    max_tag_search_illusts: int,
     top_n_tags: int,
     top_n_pairs: int,
     max_results: int,
@@ -339,6 +349,11 @@ def cmd_full_recommend(
             max_related_per_illust=max_related_per_illust,
             max_seed_artists=max_seed_artists,
             max_candidate_artists=max_candidate_artists,
+            enable_user_recommended=enable_user_recommended,
+            max_user_recommended=max_user_recommended,
+            enable_tag_search=enable_tag_search,
+            max_tag_search_tags=max_tag_search_tags,
+            max_tag_search_illusts=max_tag_search_illusts,
             top_n_tags=top_n_tags,
             top_n_pairs=top_n_pairs,
             max_results=max_results,
@@ -366,6 +381,11 @@ def cmd_run_seed_job(
     max_related_per_illust: int,
     max_seed_artists: int,
     max_candidate_artists: int,
+    enable_user_recommended: bool,
+    max_user_recommended: int,
+    enable_tag_search: bool,
+    max_tag_search_tags: int,
+    max_tag_search_illusts: int,
     top_n_tags: int,
     top_n_pairs: int,
     max_results: int,
@@ -390,6 +410,11 @@ def cmd_run_seed_job(
             max_related_per_illust=max_related_per_illust,
             max_seed_artists=max_seed_artists,
             max_candidate_artists=max_candidate_artists,
+            enable_user_recommended=enable_user_recommended,
+            max_user_recommended=max_user_recommended,
+            enable_tag_search=enable_tag_search,
+            max_tag_search_tags=max_tag_search_tags,
+            max_tag_search_illusts=max_tag_search_illusts,
             top_n_tags=top_n_tags,
             top_n_pairs=top_n_pairs,
             max_results=max_results,
@@ -624,6 +649,11 @@ def main(argv: list[str] | None = None) -> int:
                 max_related_per_illust=args.max_related_per_illust,
                 max_seed_artists=args.max_seed_artists,
                 max_candidate_artists=args.max_candidate_artists,
+                enable_user_recommended=args.enable_user_recommended,
+                max_user_recommended=args.max_user_recommended,
+                enable_tag_search=args.enable_tag_search,
+                max_tag_search_tags=args.max_tag_search_tags,
+                max_tag_search_illusts=args.max_tag_search_illusts,
                 top_n_tags=args.top_n_tags,
                 top_n_pairs=args.top_n_pairs,
                 max_results=args.max_results,
@@ -647,6 +677,11 @@ def main(argv: list[str] | None = None) -> int:
                 max_related_per_illust=args.max_related_per_illust,
                 max_seed_artists=args.max_seed_artists,
                 max_candidate_artists=args.max_candidate_artists,
+                enable_user_recommended=args.enable_user_recommended,
+                max_user_recommended=args.max_user_recommended,
+                enable_tag_search=args.enable_tag_search,
+                max_tag_search_tags=args.max_tag_search_tags,
+                max_tag_search_illusts=args.max_tag_search_illusts,
                 top_n_tags=args.top_n_tags,
                 top_n_pairs=args.top_n_pairs,
                 max_results=args.max_results,

@@ -82,13 +82,13 @@ python -m pixiv_artist_recsys run-manifest --manifest path\to\jobs.json
 ## 模块地图
 
 ```
-auth/          OAuth refresh + cache + coordinator（优先 DB rotated token）
+auth/          OAuth refresh + cache + coordinator + retry transport
 proxy/         代理池 + failover
-pixiv/         App API client + inspector
+pixiv/         App API client + inspector（含 recommended / search）
 ingest/        following sync + artist illust hydration（可限流）
 profile/       标签 / 标签对画像
-candidate/     user_related + illust_related（max_seed_artists）
-rank/          启发式 + AI/R18/收藏门槛 + 多样性 + 负反馈
+candidate/     related + user_recommended + tag_search
+rank/          启发式 + median/consistency + AI/R18/收藏门槛 + 多样性 + 负反馈
 feedback/      follow / dislike / block
 pipeline/      live recommendation
 application/   CLI/API 共用 facade
@@ -113,7 +113,7 @@ cli.py         命令入口
 
 按 `计划书.md`：
 
-1. M0 稳定性（本轮：token 轮换、采样上限、错误信息、文档）
-2. M1 可恢复调用（429/backoff）
-3. M2 召回扩展 / 排序增强
-4. M3–M4 体验与可选前端
+1. M0/M1 稳定性 ✅（token 轮换、采样上限、错误信息、文档）
+2. M2 召回扩展 / 排序增强 / HTTP retry ✅
+3. M3 分步运行与长跑
+4. M4 v1 冻结

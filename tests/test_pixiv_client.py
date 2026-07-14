@@ -52,6 +52,28 @@ class FakePixivTransport:
                     'x_restrict': 0,
                 }
             }))
+        if url.endswith('/v1/user/recommended'):
+            return HttpResponse(200, {}, json.dumps({
+                'user_previews': [
+                    {'user': {'id': 301, 'name': 'rec-a', 'account': 'rec_a', 'profile_image_urls': {'medium': 'https://img/r.jpg'}}},
+                ],
+                'next_url': None,
+            }))
+        if url.endswith('/v1/search/illust'):
+            return HttpResponse(200, {}, json.dumps({
+                'illusts': [
+                    {
+                        'id': 401,
+                        'title': 'search-hit',
+                        'create_date': '2026-03-01T00:00:00+00:00',
+                        'total_bookmarks': 50,
+                        'total_view': 500,
+                        'total_comments': 2,
+                        'user': {'id': 501},
+                    }
+                ],
+                'next_url': None,
+            }))
         return HttpResponse(404, {}, '{}')
 
 
@@ -74,8 +96,18 @@ class PixivClientTests(unittest.TestCase):
         self.assertEqual(illust_detail.tags, ['tag-a', 'tag-b'])
         self.assertTrue(illust_detail.original_image_url.endswith('201.jpg'))
 
+        recommended = client.fetch_user_recommended()
+        self.assertEqual(recommended.items[0].user_id, 301)
+
+        searched = client.fetch_search_illust(word='blue hair')
+        self.assertEqual(searched.items[0].user_id, 501)
+        self.assertEqual(searched.items[0].illust_id, 401)
+
         auth_headers = [call['headers']['Authorization'] for call in transport.calls]
         self.assertTrue(all(header == 'Bearer token-abc' for header in auth_headers))
+        search_call = next(call for call in transport.calls if str(call['url']).endswith('/v1/search/illust'))
+        self.assertEqual(search_call['params']['word'], 'blue hair')
+        self.assertEqual(search_call['params']['sort'], 'popular_desc')
 
 
 if __name__ == '__main__':

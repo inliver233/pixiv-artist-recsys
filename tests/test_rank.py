@@ -30,6 +30,8 @@ class RankServiceTests(unittest.TestCase):
             self.assertEqual(result.items[0].artist.user_id, 2001)
             self.assertGreater(result.items[0].score, 0)
             self.assertTrue(result.items[0].reasons)
+            self.assertTrue(any(reason.startswith('quality:median_bookmarks=') for reason in result.items[0].reasons))
+            self.assertTrue(any(reason.startswith('quality:consistency=') for reason in result.items[0].reasons))
 
     def test_rank_guardrails_filter_ai_r18_and_low_bookmark_candidates(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

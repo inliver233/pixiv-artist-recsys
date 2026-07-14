@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import asdict
 
+from ..auth.retry import RetryPolicy, RetryingHttpTransport
 from ..auth.transport import HttpTransport, UrllibHttpTransport
 from .models import ProxyPolicy
 from .pool import ProxyPool
@@ -29,13 +30,33 @@ def build_proxy_pool_from_env(env: dict[str, str] | None = None, *, now_fn=None)
     return ProxyPool.from_urls(urls, policy=policy, now_fn=now_fn)
 
 
+def _build_retry_policy(env: dict[str, str]) -> RetryPolicy | None:
+    raw_attempts = str(env.get('PIXIV_ARTIST_RECSYS_HTTP_MAX_ATTEMPTS', '3')).strip()
+    try:
+        max_attempts = int(raw_attempts)
+    except ValueError:
+        max_attempts = 3
+    if max_attempts <= 1:
+        return None
+    raw_delay = str(env.get('PIXIV_ARTIST_RECSYS_HTTP_RETRY_BASE_DELAY_S', '0.5')).strip()
+    try:
+        base_delay = float(raw_delay)
+    except ValueError:
+        base_delay = 0.5
+    return RetryPolicy(max_attempts=max_attempts, base_delay_s=max(0.0, base_delay))
+
+
 def build_http_transport_from_env(
     env: dict[str, str] | None = None,
     *,
     base_transport: HttpTransport | None = None,
     now_fn=None,
 ) -> tuple[HttpTransport, ProxyPool | None]:
+    env = env or os.environ
     base_transport = base_transport or UrllibHttpTransport()
+    retry_policy = _build_retry_policy(dict(env))
+    if retry_policy is not None:
+        base_transport = RetryingHttpTransport(base_transport=base_transport, policy=retry_policy)
     proxy_pool = build_proxy_pool_from_env(env, now_fn=now_fn)
     if proxy_pool is None or not proxy_pool.has_proxies():
         return base_transport, None

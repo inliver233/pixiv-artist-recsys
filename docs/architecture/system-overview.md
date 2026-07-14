@@ -17,13 +17,15 @@
 ## Implemented baseline
 
 - OAuth refresh / token cache / token coordinator（prefer `refresh_token_rotated`）
-- Pixiv App API client（following / user detail / user illusts / illust detail / user related / illust related）
-- following sync、followed / candidate hydration、taste profile、related candidate retrieval、heuristic rank
+- Pixiv App API client（following / user detail / user illusts / illust detail / user related / illust related / user recommended / search illust）
+- following sync、followed / candidate hydration、taste profile
+- multi-source candidate retrieval：user_related + illust_related + user_recommended + tag_search
+- heuristic rank with median bookmarks / consistency / diversity / feedback suppression
 - live pipeline：`following -> hydration -> profile -> candidate -> candidate hydration -> rank`
 - quality guardrails：allow AI / allow R18 / min bookmarks / min score
-- proxy/failover、feedback/audit、runtime diversity/export
-- typed settings、本地 JSON API、ApplicationFacade、CLI/API 共用
-- job runner / manifest batch；CLI 暴露 `max-seed-artists` / `max-candidate-artists`
+- HTTP retry/backoff（429/5xx）+ proxy failover
+- typed settings、本地 JSON API、ApplicationFacade、CLI/API/jobs 共用
+- sampling caps：`max-seed-artists` / `max-candidate-artists`
 
 ## Module map
 
@@ -59,5 +61,6 @@
 ## Roadmap status
 
 - Phase 1–12: dry-run → live pipeline → guardrails → proxy → feedback → runtime → API → jobs ✅
-- Phase 13: refresh-token inspector + 稳定性加固（token 轮换、采样上限、错误可诊断）— 进行中
-- 全量可用路线：见仓库根 `计划书.md`（M0–M4）
+- M0/M1: token 轮换、采样上限、错误可诊断、文档 ✅
+- M2: multi-source recall + rank quality + HTTP retry ✅
+- 后续 M3–M4：分步运行模式 / 长跑 / v1 冻结 — 见 `计划书.md`

@@ -14,6 +14,8 @@ USER_ILLUSTS_PATH = "/v1/user/illusts"
 ILLUST_DETAIL_PATH = "/v1/illust/detail"
 USER_RELATED_PATH = "/v1/user/related"
 ILLUST_RELATED_PATH = "/v2/illust/related"
+USER_RECOMMENDED_PATH = "/v1/user/recommended"
+SEARCH_ILLUST_PATH = "/v1/search/illust"
 
 
 class PixivAppApiError(RuntimeError):
@@ -70,6 +72,37 @@ class PixivAppApiClient:
         illusts = payload.get('illusts') if isinstance(payload, dict) else None
         items = [self._parse_illust_summary(item) for item in illusts or []]
         return PagedResult(items=items, next_url=payload.get('next_url') if isinstance(payload, dict) else None)
+
+    def fetch_user_recommended(self, *, offset: int | None = None) -> PagedResult[PixivUserSummary]:
+        payload = self._get_json(USER_RECOMMENDED_PATH, params={'offset': offset})
+        previews = payload.get('user_previews') if isinstance(payload, dict) else None
+        items = [self._parse_user_preview(item) for item in previews or []]
+        return PagedResult(items=items, next_url=payload.get('next_url') if isinstance(payload, dict) else None)
+
+    def fetch_search_illust(
+        self,
+        *,
+        word: str,
+        search_target: str = 'partial_match_for_tags',
+        sort: str = 'popular_desc',
+        offset: int | None = None,
+    ) -> PagedResult[PixivIllustSummary]:
+        word = (word or '').strip()
+        if not word:
+            raise ValueError('search word is required')
+        payload = self._get_json(
+            SEARCH_ILLUST_PATH,
+            params={
+                'word': word,
+                'search_target': search_target,
+                'sort': sort,
+                'offset': offset,
+            },
+        )
+        illusts = payload.get('illusts') if isinstance(payload, dict) else None
+        items = [self._parse_illust_summary(item) for item in illusts or []]
+        return PagedResult(items=items, next_url=payload.get('next_url') if isinstance(payload, dict) else None)
+
     def fetch_following_users(self, *, user_id: int, restrict: str = 'public', offset: int | None = None) -> PagedResult[PixivUserSummary]:
         payload = self._get_json(USER_FOLLOWING_PATH, params={'user_id': user_id, 'restrict': restrict, 'offset': offset})
         previews = payload.get('user_previews') if isinstance(payload, dict) else None

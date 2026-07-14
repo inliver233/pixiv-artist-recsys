@@ -21,6 +21,11 @@ class SeedJobRequest:
     max_related_per_illust: int = 5
     max_seed_artists: int = 40
     max_candidate_artists: int = 80
+    enable_user_recommended: bool = True
+    max_user_recommended: int = 30
+    enable_tag_search: bool = True
+    max_tag_search_tags: int = 5
+    max_tag_search_illusts: int = 20
     top_n_tags: int = 20
     top_n_pairs: int = 20
     max_results: int | None = None
@@ -51,6 +56,11 @@ class SeedJobRequest:
             max_related_per_illust=int(payload.get('max_related_per_illust', 5)),
             max_seed_artists=int(payload.get('max_seed_artists', 40)),
             max_candidate_artists=int(payload.get('max_candidate_artists', 80)),
+            enable_user_recommended=_optional_bool(payload.get('enable_user_recommended')) if payload.get('enable_user_recommended', None) is not None else True,
+            max_user_recommended=int(payload.get('max_user_recommended', 30)),
+            enable_tag_search=_optional_bool(payload.get('enable_tag_search')) if payload.get('enable_tag_search', None) is not None else True,
+            max_tag_search_tags=int(payload.get('max_tag_search_tags', 5)),
+            max_tag_search_illusts=int(payload.get('max_tag_search_illusts', 20)),
             top_n_tags=int(payload.get('top_n_tags', 20)),
             top_n_pairs=int(payload.get('top_n_pairs', 20)),
             max_results=_optional_int(payload.get('max_results')),
@@ -100,6 +110,11 @@ class SeedJobRunner:
             max_related_per_illust=request.max_related_per_illust,
             max_seed_artists=request.max_seed_artists,
             max_candidate_artists=request.max_candidate_artists,
+            enable_user_recommended=request.enable_user_recommended,
+            max_user_recommended=request.max_user_recommended,
+            enable_tag_search=request.enable_tag_search,
+            max_tag_search_tags=request.max_tag_search_tags,
+            max_tag_search_illusts=request.max_tag_search_illusts,
             top_n_tags=request.top_n_tags,
             top_n_pairs=request.top_n_pairs,
             max_results=request.max_results,

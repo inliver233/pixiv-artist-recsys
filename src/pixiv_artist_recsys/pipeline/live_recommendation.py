@@ -23,6 +23,11 @@ class LiveRecommendationRequest:
     max_related_per_illust: int = 8
     max_seed_artists: int = 40
     max_candidate_artists: int = 80
+    enable_user_recommended: bool = True
+    max_user_recommended: int = 30
+    enable_tag_search: bool = True
+    max_tag_search_tags: int = 5
+    max_tag_search_illusts: int = 20
     top_n_tags: int = 20
     top_n_pairs: int = 20
     max_results: int = 50
@@ -84,6 +89,11 @@ class LiveRecommendationPipeline:
             max_related_per_artist=request.max_related_per_artist,
             max_related_per_illust=request.max_related_per_illust,
             max_seed_artists=request.max_seed_artists,
+            enable_user_recommended=request.enable_user_recommended,
+            max_user_recommended=request.max_user_recommended,
+            enable_tag_search=request.enable_tag_search,
+            max_tag_search_tags=request.max_tag_search_tags,
+            max_tag_search_illusts=request.max_tag_search_illusts,
         )
         candidate_hydration_result = self.hydration_service.hydrate_candidate_artists(
             seed_user_id=request.seed_user_id,

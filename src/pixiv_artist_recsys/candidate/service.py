@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-from collections import defaultdict
 from dataclasses import dataclass
 
 from ..domain.models import Artist
 from ..pixiv import PixivAppApiClient
-from ..profile import UserTasteProfileService
 from ..storage.repositories import RecommendationRepository
 
 
@@ -28,6 +26,11 @@ class RelatedArtistCandidateService:
         max_related_per_artist: int = 8,
         max_related_per_illust: int = 8,
         max_seed_artists: int = 40,
+        enable_user_recommended: bool = True,
+        max_user_recommended: int = 30,
+        enable_tag_search: bool = True,
+        max_tag_search_tags: int = 5,
+        max_tag_search_illusts: int = 20,
     ) -> CandidateArtistResult:
         followed_artist_ids = set(self.repository.list_following_artist_ids(seed_user_id=seed_user_id))
         evidence_rows: list[tuple[int, str, str, float, str]] = []
@@ -39,7 +42,13 @@ class RelatedArtistCandidateService:
             for user in related_users.items[:max_related_per_artist]:
                 if user.user_id in followed_artist_ids or user.user_id <= 0:
                     continue
-                hydrated_artist_cache[user.user_id] = Artist(user_id=user.user_id, name=user.name, account=user.account, profile_image_url=user.profile_image_url, is_followed=False)
+                hydrated_artist_cache[user.user_id] = Artist(
+                    user_id=user.user_id,
+                    name=user.name,
+                    account=user.account,
+                    profile_image_url=user.profile_image_url,
+                    is_followed=False,
+                )
                 evidence_rows.append((user.user_id, 'user_related', f'user:{artist_id}', 1.0, f'related-to-user:{artist_id}'))
 
             for illust_id in self.repository.list_illust_ids_for_artist(artist_user_id=artist_id)[:max_related_per_artist]:
@@ -49,10 +58,71 @@ class RelatedArtistCandidateService:
                         continue
                     if illust.user_id not in hydrated_artist_cache:
                         existing = self.repository.fetch_artist(artist_user_id=illust.user_id)
-                        hydrated_artist_cache[illust.user_id] = existing or Artist(user_id=illust.user_id, name=f'artist-{illust.user_id}', is_followed=False)
-                    evidence_rows.append((illust.user_id, 'illust_related', f'illust:{illust_id}', 0.8, f'related-to-illust:{illust_id}'))
+                        hydrated_artist_cache[illust.user_id] = existing or Artist(
+                            user_id=illust.user_id,
+                            name=f'artist-{illust.user_id}',
+                            is_followed=False,
+                        )
+                    evidence_rows.append(
+                        (illust.user_id, 'illust_related', f'illust:{illust_id}', 0.8, f'related-to-illust:{illust_id}')
+                    )
+
+        if enable_user_recommended and hasattr(self.pixiv_client, 'fetch_user_recommended'):
+            try:
+                recommended = self.pixiv_client.fetch_user_recommended()
+            except Exception:  # noqa: BLE001 - optional source must not break related recall
+                recommended = None
+            if recommended is not None:
+                for user in recommended.items[: max(0, int(max_user_recommended))]:
+                    if user.user_id in followed_artist_ids or user.user_id <= 0:
+                        continue
+                    hydrated_artist_cache[user.user_id] = Artist(
+                        user_id=user.user_id,
+                        name=user.name,
+                        account=user.account,
+                        profile_image_url=user.profile_image_url,
+                        is_followed=False,
+                    )
+                    evidence_rows.append(
+                        (user.user_id, 'user_recommended', 'feed:user_recommended', 0.9, 'pixiv-user-recommended')
+                    )
+
+        if enable_tag_search and hasattr(self.pixiv_client, 'fetch_search_illust'):
+            profile = self.repository.fetch_user_taste_profile(seed_user_id=seed_user_id)
+            top_tags = [tag for tag, _weight in list(profile)[: max(0, int(max_tag_search_tags))]]
+            for tag in top_tags:
+                word = str(tag or '').replace('_', ' ').strip()
+                if not word:
+                    continue
+                try:
+                    page = self.pixiv_client.fetch_search_illust(word=word, sort='popular_desc')
+                except Exception:  # noqa: BLE001 - optional source must not break related recall
+                    continue
+                for illust in page.items[: max(0, int(max_tag_search_illusts))]:
+                    if illust.user_id in followed_artist_ids or illust.user_id <= 0:
+                        continue
+                    if illust.user_id not in hydrated_artist_cache:
+                        existing = self.repository.fetch_artist(artist_user_id=illust.user_id)
+                        hydrated_artist_cache[illust.user_id] = existing or Artist(
+                            user_id=illust.user_id,
+                            name=f'artist-{illust.user_id}',
+                            is_followed=False,
+                        )
+                    evidence_rows.append(
+                        (
+                            illust.user_id,
+                            'tag_search',
+                            f'tag:{word}',
+                            0.7,
+                            f'search-illust-tag:{word}',
+                        )
+                    )
 
         for artist in hydrated_artist_cache.values():
             self.repository.upsert_artist(artist)
         self.repository.replace_artist_candidates(seed_user_id=seed_user_id, candidates=evidence_rows)
-        return CandidateArtistResult(seed_user_id=seed_user_id, candidate_count=len({row[0] for row in evidence_rows}), evidence_count=len(evidence_rows))
+        return CandidateArtistResult(
+            seed_user_id=seed_user_id,
+            candidate_count=len({row[0] for row in evidence_rows}),
+            evidence_count=len(evidence_rows),
+        )
