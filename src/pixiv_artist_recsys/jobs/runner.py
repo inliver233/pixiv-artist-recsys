@@ -15,8 +15,8 @@ class SeedJobRequest:
     refresh_token: str | None = None
     access_token: str | None = None
     restrict: str = 'public'
-    followed_artist_limit: int = 5
-    candidate_artist_limit: int = 3
+    followed_artist_limit: int = 8
+    candidate_artist_limit: int = 5
     max_related_per_artist: int = 5
     max_related_per_illust: int = 5
     max_seed_artists: int = 40
@@ -50,8 +50,8 @@ class SeedJobRequest:
             refresh_token=_optional_text(payload.get('refresh_token')),
             access_token=_optional_text(payload.get('access_token')),
             restrict=_optional_text(payload.get('restrict')) or 'public',
-            followed_artist_limit=int(payload.get('followed_artist_limit', 5)),
-            candidate_artist_limit=int(payload.get('candidate_artist_limit', 3)),
+            followed_artist_limit=int(payload.get('followed_artist_limit', 8)),
+            candidate_artist_limit=int(payload.get('candidate_artist_limit', 5)),
             max_related_per_artist=int(payload.get('max_related_per_artist', 5)),
             max_related_per_illust=int(payload.get('max_related_per_illust', 5)),
             max_seed_artists=int(payload.get('max_seed_artists', 40)),

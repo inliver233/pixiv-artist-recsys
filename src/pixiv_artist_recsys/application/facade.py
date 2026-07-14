@@ -190,7 +190,7 @@ class ApplicationFacade:
         token_key: str | None = None,
         refresh_token: str | None = None,
         access_token: str | None = None,
-        per_artist_limit: int = 5,
+        per_artist_limit: int = 8,
         max_artists: int | None = 40,
         sync_following: bool = True,
         restrict: str = 'public',
@@ -237,7 +237,7 @@ class ApplicationFacade:
         token_key: str | None = None,
         refresh_token: str | None = None,
         access_token: str | None = None,
-        per_artist_limit: int = 3,
+        per_artist_limit: int = 5,
         max_artists: int | None = 80,
     ) -> dict[str, Any]:
         pixiv_client = self._build_pixiv_client(
@@ -369,8 +369,8 @@ class ApplicationFacade:
         refresh_token: str | None = None,
         access_token: str | None = None,
         restrict: str = 'public',
-        followed_artist_limit: int = 5,
-        candidate_artist_limit: int = 3,
+        followed_artist_limit: int = 8,
+        candidate_artist_limit: int = 5,
         max_related_per_artist: int = 5,
         max_related_per_illust: int = 5,
         max_seed_artists: int = 40,

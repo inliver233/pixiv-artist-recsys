@@ -59,8 +59,8 @@ def _add_pixiv_token_args(parser: argparse.ArgumentParser, *, include_seed_user:
 def _add_recommendation_args(parser: argparse.ArgumentParser, *, settings, include_output: bool = False) -> None:
     _add_pixiv_token_args(parser)
     parser.add_argument('--restrict', default='public')
-    parser.add_argument('--followed-artist-limit', type=int, default=5)
-    parser.add_argument('--candidate-artist-limit', type=int, default=3)
+    parser.add_argument('--followed-artist-limit', type=int, default=8)
+    parser.add_argument('--candidate-artist-limit', type=int, default=5)
     parser.add_argument('--max-related-per-artist', type=int, default=5)
     parser.add_argument('--max-related-per-illust', type=int, default=5)
     parser.add_argument('--max-seed-artists', type=int, default=40, help='Cap followed artists used for hydration/candidate seeds')
@@ -133,7 +133,7 @@ def build_parser() -> argparse.ArgumentParser:
     hydrate.add_argument('--token-key')
     hydrate.add_argument('--refresh-token')
     hydrate.add_argument('--access-token')
-    hydrate.add_argument('--per-artist-limit', type=int, default=5)
+    hydrate.add_argument('--per-artist-limit', type=int, default=8)
     hydrate.add_argument('--max-artists', type=int, default=40)
     hydrate.add_argument('--sync-following', action=argparse.BooleanOptionalAction, default=True)
     hydrate.add_argument('--restrict', default='public')
@@ -143,7 +143,7 @@ def build_parser() -> argparse.ArgumentParser:
     hydrate_candidates.add_argument('--token-key')
     hydrate_candidates.add_argument('--refresh-token')
     hydrate_candidates.add_argument('--access-token')
-    hydrate_candidates.add_argument('--per-artist-limit', type=int, default=3)
+    hydrate_candidates.add_argument('--per-artist-limit', type=int, default=5)
     hydrate_candidates.add_argument('--max-artists', type=int, default=80)
 
     profile = sub.add_parser('build-profile', help='Build local taste profile from hydrated followed artists')

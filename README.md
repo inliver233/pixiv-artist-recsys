@@ -6,10 +6,11 @@
 
 ## 当前状态（2026-07-14）
 
-- 12 批 Issue 已完成，核心链路可跑：Auth → Following → Hydrate → Profile → Related 召回 → Rank → Feedback → Audit
-- 入口：CLI / 本地 JSON API / Job Manifest
+- 版本：**0.2.0**（本地全量可用冻结，见 `CHANGELOG.md`）
+- 12 批 Issue 已完成，核心链路可跑：Auth → Following → Hydrate → Profile → 多源召回 → Rank → Feedback → Audit
+- 入口：CLI / 本地 JSON API / Job Manifest / 分步长跑
 - 测试：标准库 `unittest`（无第三方依赖）
-- 路线图：见 `计划书.md`（M0–M4）
+- 路线图：`计划书.md`；后续项：`docs/backlog.md`
 
 ## 目录
 
@@ -126,9 +127,4 @@ cli.py         命令入口
 
 ## 下一步
 
-按 `计划书.md`：
-
-1. M0/M1 稳定性 ✅（token 轮换、采样上限、错误信息、文档）
-2. M2 召回扩展 / 排序增强 / HTTP retry ✅
-3. M3 分步运行与长跑 ✅（sync / hydrate / profile / candidates / rank + manifest 示例 + ops 文档）
-4. M4 v1 冻结
+M0–M4 已完成（v0.2.0）。本机用 `docs/ops/live-checklist.md` 走实网勾选；增强项见 `docs/backlog.md`。

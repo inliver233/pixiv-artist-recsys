@@ -52,8 +52,8 @@
 
 | Param | Default | Role |
 |-------|--------:|------|
-| `followed_artist_limit` | 5 | 每位关注画师拉取 illust 数 |
-| `candidate_artist_limit` | 3 | 每位候选画师拉取 illust 数 |
+| `followed_artist_limit` | 8 | 每位关注画师拉取 illust 数（日常档默认） |
+| `candidate_artist_limit` | 5 | 每位候选画师拉取 illust 数（日常档默认） |
 | `max_related_per_artist` | 5 | 每位种子 user_related 上限 |
 | `max_related_per_illust` | 5 | 每张图 illust_related 上限 |
 | `max_seed_artists` | 40 | 参与 hydrate/召回的关注画师上限 |
@@ -66,4 +66,4 @@
 - M0/M1: token 轮换、采样上限、错误可诊断、文档 ✅
 - M2: multi-source recall + rank quality + HTTP retry ✅
 - M3: 分步 CLI + manifest 示例 + ops 故障表 ✅
-- 后续 M4：实网清单 / 版本冻结 — 见 `计划书.md`
+- M4: live checklist / CHANGELOG / `0.2.0` / backlog ✅
