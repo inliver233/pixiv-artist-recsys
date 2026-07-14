@@ -53,7 +53,11 @@ class PixivOAuthService:
             proxy=proxy,
         )
         if response.status_code != 200:
-            raise PixivOAuthError('OAuth refresh failed', status_code=response.status_code)
+            body_preview = (response.text or '')[:240].replace('\n', ' ')
+            raise PixivOAuthError(
+                f'OAuth refresh failed (status={response.status_code}): {body_preview}',
+                status_code=response.status_code,
+            )
         return self._parse_token_response(response.json())
 
     def refresh_into_record(self, *, token_key: str, refresh_token: str, existing: PixivTokenRecord | None = None) -> PixivTokenRecord:

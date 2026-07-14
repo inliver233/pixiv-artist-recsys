@@ -166,6 +166,8 @@ class ApiRouter:
                     candidate_artist_limit=self._optional_body_int(body, 'candidate_artist_limit', default=3) or 3,
                     max_related_per_artist=self._optional_body_int(body, 'max_related_per_artist', default=5) or 5,
                     max_related_per_illust=self._optional_body_int(body, 'max_related_per_illust', default=5) or 5,
+                    max_seed_artists=self._optional_body_int(body, 'max_seed_artists', default=40) or 40,
+                    max_candidate_artists=self._optional_body_int(body, 'max_candidate_artists', default=80) or 80,
                     top_n_tags=self._optional_body_int(body, 'top_n_tags', default=20) or 20,
                     top_n_pairs=self._optional_body_int(body, 'top_n_pairs', default=20) or 20,
                     max_results=self._optional_body_int(body, 'max_results', default=recommendation.max_results),

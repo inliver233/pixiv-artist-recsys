@@ -93,6 +93,63 @@ class AccessTokenCacheTests(unittest.TestCase):
             self.assertEqual(record.access_token, 'access-123')
             self.assertEqual(len(transport.calls), 1)
 
+    def test_token_coordinator_prefers_rotated_refresh_token_from_db(self) -> None:
+        transport = FakeTransport()
+        service = PixivOAuthService(config=PixivOAuthConfig(), transport=transport)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = RecommendationRepository(SQLiteDatabase(Path(tmpdir) / 'auth-rotated.sqlite3'))
+            repo.initialize()
+            repo.upsert_token_record(
+                PixivTokenRecord(
+                    token_key='seed:1',
+                    refresh_token_ref='masked:old',
+                    refresh_token_rotated='refresh-rotated-from-db',
+                    access_token='expired',
+                    expires_at_epoch=500,
+                )
+            )
+            coordinator = PixivTokenCoordinator(
+                cache=AccessTokenCache(refresh_margin_sec=60, now_fn=lambda: 1000),
+                oauth_service=service,
+                repository=repo,
+            )
+            record = coordinator.get_access_token_record(token_key='seed:1', refresh_token='stale-cli-token')
+            self.assertEqual(record.access_token, 'access-123')
+            self.assertEqual(transport.calls[0]['data']['refresh_token'], 'refresh-rotated-from-db')
+            loaded = repo.get_token_record('seed:1')
+            assert loaded is not None
+            self.assertEqual(loaded.refresh_token_rotated, 'refresh-rotated')
+
+    def test_token_coordinator_keeps_effective_refresh_when_oauth_omits_rotation(self) -> None:
+        class NoRotateTransport:
+            def __init__(self) -> None:
+                self.calls: list[dict[str, object]] = []
+
+            def send(self, **kwargs):
+                self.calls.append(kwargs)
+                return HttpResponse(
+                    status_code=200,
+                    headers={},
+                    text='{"response": {"access_token": "access-456", "token_type": "Bearer", "expires_in": 3600, "scope": "read", "user": {"id": "42"}}}',
+                )
+
+        transport = NoRotateTransport()
+        service = PixivOAuthService(config=PixivOAuthConfig(), transport=transport)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = RecommendationRepository(SQLiteDatabase(Path(tmpdir) / 'auth-no-rotate.sqlite3'))
+            repo.initialize()
+            coordinator = PixivTokenCoordinator(
+                cache=AccessTokenCache(refresh_margin_sec=60, now_fn=lambda: 1000),
+                oauth_service=service,
+                repository=repo,
+            )
+            record = coordinator.get_access_token_record(token_key='seed:2', refresh_token='refresh-keep-me')
+            self.assertEqual(record.access_token, 'access-456')
+            self.assertEqual(record.refresh_token_rotated, 'refresh-keep-me')
+            loaded = repo.get_token_record('seed:2')
+            assert loaded is not None
+            self.assertEqual(loaded.refresh_token_rotated, 'refresh-keep-me')
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -1,67 +1,63 @@
 # System Overview
 
 ## Product goal
+
 输入 Pixiv refresh token 与用户偏好，输出符合已关注审美、尚未关注、质量足够高的画师 UID 列表。
 
 ## Core pipeline
-1. Auth: refresh token / access token 管理
-2. Ingest: 获取当前用户关注画师与代表作品
-3. Profile: 构建用户审美画像（tags / tag pairs / artist clusters / negative profile）
-4. Candidate: 多召回源获取候选画师
-5. Hydrate: 拉取候选画师与作品详情
-6. Rank: artist-level quality + taste match + novelty + diversity
-7. Feedback: 记录 follow / dislike / block 回流画像
+
+1. Auth: refresh token / access token 管理（DB 优先 rotated refresh）
+2. Ingest: 同步关注 + 代表作 hydrate（`max_seed_artists` 上限）
+3. Profile: tags / tag pairs / negative profile
+4. Candidate: related 召回（`max_seed_artists` 控制种子规模）
+5. Hydrate: 候选画师作品（`max_candidate_artists` 上限）
+6. Rank: quality + taste + diversity + feedback suppression
+7. Feedback / Audit: 事件回流 + run 审计快照
 
 ## Implemented baseline
-当前 repo 已实现：
-- OAuth refresh / token cache / token coordinator
+
+- OAuth refresh / token cache / token coordinator（prefer `refresh_token_rotated`）
 - Pixiv App API client（following / user detail / user illusts / illust detail / user related / illust related）
-- following sync、followed-artist hydration、candidate hydration、taste profile、candidate retrieval、heuristic rank
+- following sync、followed / candidate hydration、taste profile、related candidate retrieval、heuristic rank
 - live pipeline：`following -> hydration -> profile -> candidate -> candidate hydration -> rank`
 - quality guardrails：allow AI / allow R18 / min bookmarks / min score
-- proxy/failover：proxy pool、cooldown、direct fallback、CLI proxy snapshot
-- feedback/audit：feedback events、negative profile、run audit、CLI feedback/audit 查询
-- runtime/diversity/export：AppRuntime、diversity-aware rank、run list/export
-- api/config/runtime enhancement：typed settings、本地 JSON API、serve-api
-- application/live-api consolidation：ApplicationFacade、live API 端点、CLI/API 复用
-- job runner / manifest batch execution：本地 job runner、manifest、快照导出
-
-## Current implementation focus
-当前推进到第 12 批：
-- 围绕 refresh token 扩展 Pixiv 直查链路
-- 增加 following / user / illust / related 的本地调试入口
-- 继续增强 token 驱动取数与框架可验证性
+- proxy/failover、feedback/audit、runtime diversity/export
+- typed settings、本地 JSON API、ApplicationFacade、CLI/API 共用
+- job runner / manifest batch；CLI 暴露 `max-seed-artists` / `max-candidate-artists`
 
 ## Module map
-- `src/pixiv_artist_recsys/config.py`: 强类型 settings / env helpers
-- `src/pixiv_artist_recsys/runtime.py`: unified runtime / wiring container
-- `src/pixiv_artist_recsys/application/`: shared orchestration facade for CLI/API
-- `src/pixiv_artist_recsys/jobs/`: local batch job runner / manifest parser / snapshot export
-- `src/pixiv_artist_recsys/pixiv/`: App API client / inspector / DTO
-- `src/pixiv_artist_recsys/storage/`: SQLite schema / repository / audit data
-- `src/pixiv_artist_recsys/auth/`: OAuth refresh / token cache / coordinator / transport
-- `src/pixiv_artist_recsys/pixiv/`: Pixiv App API client / DTO
-- `src/pixiv_artist_recsys/proxy/`: proxy pool / failover transport / env runtime
-- `src/pixiv_artist_recsys/ingest/`: following / hydration
-- `src/pixiv_artist_recsys/profile/`: taste profile
-- `src/pixiv_artist_recsys/candidate/`: related-based retrieval
-- `src/pixiv_artist_recsys/feedback/`: feedback events / negative profile
-- `src/pixiv_artist_recsys/rank/`: heuristic rank + guardrails + diversity + feedback suppression
-- `src/pixiv_artist_recsys/api/`: upcoming local JSON API router/server
-- `src/pixiv_artist_recsys/pipeline/`: dry-run pipeline + live orchestration
-- `src/pixiv_artist_recsys/cli.py`: 本地命令入口
 
-## Near-term roadmap
-- Phase 1: dry-run skeleton ✅
-- Phase 2: token / pixiv client / following ingest ✅
-- Phase 3: followings ingest + artist profile ✅
-- Phase 4: candidate retrieval + ranking ✅
-- Phase 5: full live pipeline ✅
-- Phase 6: quality guardrails ✅
-- Phase 7: proxy/failover ✅
-- Phase 8: feedback loop + recommendation audit ✅
-- Phase 9: runtime/diversity/export ✅
-- Phase 10: API/config/runtime enhancement ✅
-- Phase 11: application/live API consolidation ✅
-- Phase 12: job runner / manifest batch execution ✅
-- Phase 13: refresh-token-driven Pixiv inspector（当前进行中）
+- `config.py`: typed settings / env helpers
+- `runtime.py`: unified runtime / wiring
+- `application/`: facade for CLI/API/jobs
+- `jobs/`: seed job + manifest
+- `auth/`: OAuth / cache / coordinator / transport
+- `proxy/`: proxy pool / failover transport
+- `pixiv/`: App API client / inspector / DTO
+- `ingest/`: following + hydration（artist caps）
+- `profile/`: taste profile
+- `candidate/`: related retrieval（seed caps）
+- `rank/`: heuristic rank + guardrails
+- `feedback/`: events / negative profile
+- `storage/`: SQLite schema / repository
+- `pipeline/`: dry-run + live orchestration
+- `api/`: local JSON API
+- `cli.py`: command entry
+
+## Sampling controls
+
+| Param | Default | Role |
+|-------|--------:|------|
+| `followed_artist_limit` | 5 | 每位关注画师拉取 illust 数 |
+| `candidate_artist_limit` | 3 | 每位候选画师拉取 illust 数 |
+| `max_related_per_artist` | 5 | 每位种子 user_related 上限 |
+| `max_related_per_illust` | 5 | 每张图 illust_related 上限 |
+| `max_seed_artists` | 40 | 参与 hydrate/召回的关注画师上限 |
+| `max_candidate_artists` | 80 | 需要 hydrate 的候选画师上限 |
+| `max_results` | 50 | 最终输出条数 |
+
+## Roadmap status
+
+- Phase 1–12: dry-run → live pipeline → guardrails → proxy → feedback → runtime → API → jobs ✅
+- Phase 13: refresh-token inspector + 稳定性加固（token 轮换、采样上限、错误可诊断）— 进行中
+- 全量可用路线：见仓库根 `计划书.md`（M0–M4）

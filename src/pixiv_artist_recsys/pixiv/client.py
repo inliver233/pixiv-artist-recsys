@@ -123,7 +123,11 @@ class PixivAppApiClient:
         }
         response = self.transport.send(method='GET', url=self.base_url + path, headers=headers, params=params)
         if response.status_code != 200:
-            raise PixivAppApiError('Pixiv App API request failed', status_code=response.status_code)
+            body_preview = (response.text or '')[:240].replace('\n', ' ')
+            raise PixivAppApiError(
+                f'Pixiv App API request failed path={path} status={response.status_code}: {body_preview}',
+                status_code=response.status_code,
+            )
         try:
             data = response.json()
         except Exception as exc:

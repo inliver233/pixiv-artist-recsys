@@ -107,6 +107,31 @@ class LivePipelineTests(unittest.TestCase):
             self.assertEqual(audit['ranked']['artist_user_ids'], [2001])
             self.assertGreaterEqual(repo.count_rows('illusts'), 4)
 
+    def test_live_pipeline_respects_max_seed_and_candidate_caps(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = RecommendationRepository(SQLiteDatabase(Path(tmpdir) / 'live-pipeline-caps.sqlite3'))
+            repo.initialize()
+            pipeline = LiveRecommendationPipeline(repository=repo, pixiv_client=FakeLivePixivClient())
+
+            result = pipeline.run(
+                LiveRecommendationRequest(
+                    seed_user_id=7,
+                    refresh_token_ref='masked:token',
+                    followed_artist_limit=1,
+                    candidate_artist_limit=1,
+                    max_related_per_artist=2,
+                    max_related_per_illust=2,
+                    max_seed_artists=1,
+                    max_candidate_artists=1,
+                    max_results=5,
+                    min_total_bookmarks=30,
+                    min_score=0.5,
+                )
+            )
+
+            self.assertEqual(result.followed_hydration_result.artists_processed, 1)
+            self.assertEqual(result.candidate_hydration_result.artists_processed, 1)
+
 
 if __name__ == '__main__':
     unittest.main()

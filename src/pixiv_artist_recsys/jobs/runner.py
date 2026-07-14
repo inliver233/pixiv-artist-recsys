@@ -19,6 +19,8 @@ class SeedJobRequest:
     candidate_artist_limit: int = 3
     max_related_per_artist: int = 5
     max_related_per_illust: int = 5
+    max_seed_artists: int = 40
+    max_candidate_artists: int = 80
     top_n_tags: int = 20
     top_n_pairs: int = 20
     max_results: int | None = None
@@ -47,6 +49,8 @@ class SeedJobRequest:
             candidate_artist_limit=int(payload.get('candidate_artist_limit', 3)),
             max_related_per_artist=int(payload.get('max_related_per_artist', 5)),
             max_related_per_illust=int(payload.get('max_related_per_illust', 5)),
+            max_seed_artists=int(payload.get('max_seed_artists', 40)),
+            max_candidate_artists=int(payload.get('max_candidate_artists', 80)),
             top_n_tags=int(payload.get('top_n_tags', 20)),
             top_n_pairs=int(payload.get('top_n_pairs', 20)),
             max_results=_optional_int(payload.get('max_results')),
@@ -94,6 +98,8 @@ class SeedJobRunner:
             candidate_artist_limit=request.candidate_artist_limit,
             max_related_per_artist=request.max_related_per_artist,
             max_related_per_illust=request.max_related_per_illust,
+            max_seed_artists=request.max_seed_artists,
+            max_candidate_artists=request.max_candidate_artists,
             top_n_tags=request.top_n_tags,
             top_n_pairs=request.top_n_pairs,
             max_results=request.max_results,

@@ -20,16 +20,31 @@ class ArtistIllustHydrationService:
         self.repository = repository
         self.pixiv_client = pixiv_client
 
-    def hydrate_followed_artists(self, *, seed_user_id: int, per_artist_limit: int = 5) -> ArtistIllustHydrationResult:
+    def hydrate_followed_artists(
+        self,
+        *,
+        seed_user_id: int,
+        per_artist_limit: int = 12,
+        max_artists: int | None = 40,
+    ) -> ArtistIllustHydrationResult:
         artists = self.repository.list_followed_artists(seed_user_id=seed_user_id)
+        artist_ids = [artist.user_id for artist in artists]
+        if max_artists is not None:
+            artist_ids = artist_ids[: max(0, int(max_artists))]
         return self._hydrate_artist_ids(
             seed_user_id=seed_user_id,
-            artist_user_ids=[artist.user_id for artist in artists],
+            artist_user_ids=artist_ids,
             per_artist_limit=per_artist_limit,
             scope='followed',
         )
 
-    def hydrate_candidate_artists(self, *, seed_user_id: int, per_artist_limit: int = 3) -> ArtistIllustHydrationResult:
+    def hydrate_candidate_artists(
+        self,
+        *,
+        seed_user_id: int,
+        per_artist_limit: int = 8,
+        max_artists: int | None = 80,
+    ) -> ArtistIllustHydrationResult:
         followed_ids = set(self.repository.list_following_artist_ids(seed_user_id=seed_user_id))
         candidate_ids = []
         for artist_user_id in self.repository.list_candidate_artist_ids(seed_user_id=seed_user_id):
@@ -38,6 +53,8 @@ class ArtistIllustHydrationService:
             if self.repository.fetch_artist(artist_user_id=artist_user_id) is None:
                 self.repository.upsert_artist(Artist(user_id=artist_user_id, name=f'artist-{artist_user_id}', is_followed=False))
             candidate_ids.append(artist_user_id)
+            if max_artists is not None and len(candidate_ids) >= max(0, int(max_artists)):
+                break
         return self._hydrate_artist_ids(
             seed_user_id=seed_user_id,
             artist_user_ids=candidate_ids,

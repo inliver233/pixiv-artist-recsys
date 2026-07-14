@@ -1,37 +1,119 @@
 # pixiv-artist-recsys
 
-一个面向本地运行的 Pixiv 画师推荐 UID 获取系统。
+本地运行的 Pixiv 画师推荐 UID 获取系统：输入 refresh token，输出符合已关注审美、尚未关注的画师列表。
 
-## 当前阶段目标
-- 建立可追踪的本地 Git / Plan / Issue CSV 工作流
-- 生成基于既有仓库调查的能力矩阵与实施计划
-- 搭建推荐系统首版代码骨架
-- 使用本地 SQLite 作为首版存储后端
+仓库：https://github.com/inliver233/pixiv-artist-recsys
 
-## 目标系统
-输入：Pixiv refresh token、用户偏好配置。
-输出：符合已关注审美的未关注画师 UID 列表，以及解释信息。
+## 当前状态（2026-07-14）
+
+- 12 批 Issue 已完成，核心链路可跑：Auth → Following → Hydrate → Profile → Related 召回 → Rank → Feedback → Audit
+- 入口：CLI / 本地 JSON API / Job Manifest
+- 测试：标准库 `unittest`（无第三方依赖）
+- 路线图：见 `计划书.md`（M0–M4）
 
 ## 目录
-- `.codex/`：本地工作流 prompt / skill 资产
-- `plan/`：实施计划
-- `issues/`：Issue CSV
-- `docs/investigation/`：调查资料与矩阵
-- `docs/architecture/`：架构说明
-- `src/`：源码
-- `tests/`：测试
-- `data/`：本地数据目录（默认不提交运行时数据库）
 
-## 本地开发
+| 路径 | 说明 |
+|------|------|
+| `src/pixiv_artist_recsys/` | 源码 |
+| `tests/` | 单元测试 |
+| `docs/architecture/` | 架构与接口图 |
+| `plan/` `issues/` | 历史实施计划与 CSV |
+| `data/` | 本地数据（默认不入库） |
+| `计划书.md` | 全量可用推进 SSOT |
+
+## 快速开始
+
 ```powershell
+cd pixiv-artist-recsys
 python -m compileall -q src tests
 python -m unittest -v
+python -m pixiv_artist_recsys init-db
+python -m pixiv_artist_recsys show-config
 ```
 
-## Git 工作流
-- 本地仓库基线：`main`
+复制 `.env.example` 按需设置路径/推荐阈值（**不要**把真实 refresh token 写进仓库）。
+
+### 一键推荐（需要真实 refresh token）
+
+```powershell
+python -m pixiv_artist_recsys full-recommend `
+  --seed-user-id <你的 pixiv user id> `
+  --refresh-token <refresh_token> `
+  --followed-artist-limit 8 `
+  --candidate-artist-limit 5 `
+  --max-related-per-artist 8 `
+  --max-related-per-illust 8 `
+  --max-seed-artists 40 `
+  --max-candidate-artists 80 `
+  --max-results 50
+```
+
+说明：
+
+- **rotated refresh token** 会写入 SQLite；下次刷新优先用库里的新 token，即使 CLI 仍传旧值。
+- `--max-seed-artists` / `--max-candidate-artists` 限制 hydrate/召回规模，避免关注数很大时 API 爆炸。
+- 失败时 OAuth/App API 错误会带 status 与 body 摘要，便于诊断 401/429。
+
+### 日常 vs 深度（建议）
+
+| 档位 | followed-artist-limit | max-seed-artists | candidate-artist-limit | max-candidate-artists | max-results |
+|------|----------------------:|-----------------:|-----------------------:|----------------------:|------------:|
+| 日常快速 | 5 | 20 | 3 | 40 | 30 |
+| 日常推荐 | 8 | 40 | 5 | 80 | 50 |
+| 深度扫描 | 12 | 80 | 8 | 150 | 80 |
+
+### 其它常用命令
+
+```powershell
+# 本地 API
+python -m pixiv_artist_recsys serve-api
+
+# 离线排序（库内已有数据）
+python -m pixiv_artist_recsys recommend-from-store --seed-user-id <id> --max-results 30
+
+# 负反馈
+python -m pixiv_artist_recsys record-feedback --seed-user-id <id> --artist-user-id <uid> --action dislike
+
+# 批处理
+python -m pixiv_artist_recsys run-manifest --manifest path\to\jobs.json
+```
+
+## 模块地图
+
+```
+auth/          OAuth refresh + cache + coordinator（优先 DB rotated token）
+proxy/         代理池 + failover
+pixiv/         App API client + inspector
+ingest/        following sync + artist illust hydration（可限流）
+profile/       标签 / 标签对画像
+candidate/     user_related + illust_related（max_seed_artists）
+rank/          启发式 + AI/R18/收藏门槛 + 多样性 + 负反馈
+feedback/      follow / dislike / block
+pipeline/      live recommendation
+application/   CLI/API 共用 facade
+api/           本地 JSON API
+jobs/          seed job + manifest
+cli.py         命令入口
+```
+
+## 安全
+
+- 真实 token / `.env` / sqlite 默认在 `.gitignore`
+- 不要把 refresh token 提交到 git 或写进 issue/plan
+- 详见 `AGENTS.md`
+
+## Git
+
+- 默认分支：`main`
 - 开发分支：`test`
-- 当前阶段只做本地 commit，不配置 remote
+- Remote：`origin` → `https://github.com/inliver233/pixiv-artist-recsys`
 
 ## 下一步
-后续将逐步落地：鉴权、代理、Pixiv client、关注同步、画像构建、候选召回、排序与反馈闭环。
+
+按 `计划书.md`：
+
+1. M0 稳定性（本轮：token 轮换、采样上限、错误信息、文档）
+2. M1 可恢复调用（429/backoff）
+3. M2 召回扩展 / 排序增强
+4. M3–M4 体验与可选前端

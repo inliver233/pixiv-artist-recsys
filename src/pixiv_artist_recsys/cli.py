@@ -63,6 +63,8 @@ def _add_recommendation_args(parser: argparse.ArgumentParser, *, settings, inclu
     parser.add_argument('--candidate-artist-limit', type=int, default=3)
     parser.add_argument('--max-related-per-artist', type=int, default=5)
     parser.add_argument('--max-related-per-illust', type=int, default=5)
+    parser.add_argument('--max-seed-artists', type=int, default=40, help='Cap followed artists used for hydration/candidate seeds')
+    parser.add_argument('--max-candidate-artists', type=int, default=80, help='Cap candidate artists to hydrate')
     parser.add_argument('--top-n-tags', type=int, default=20)
     parser.add_argument('--top-n-pairs', type=int, default=20)
     parser.add_argument('--max-results', type=int, default=settings.recommendation.max_results)
@@ -312,6 +314,8 @@ def cmd_full_recommend(
     candidate_artist_limit: int,
     max_related_per_artist: int,
     max_related_per_illust: int,
+    max_seed_artists: int,
+    max_candidate_artists: int,
     top_n_tags: int,
     top_n_pairs: int,
     max_results: int,
@@ -333,6 +337,8 @@ def cmd_full_recommend(
             candidate_artist_limit=candidate_artist_limit,
             max_related_per_artist=max_related_per_artist,
             max_related_per_illust=max_related_per_illust,
+            max_seed_artists=max_seed_artists,
+            max_candidate_artists=max_candidate_artists,
             top_n_tags=top_n_tags,
             top_n_pairs=top_n_pairs,
             max_results=max_results,
@@ -358,6 +364,8 @@ def cmd_run_seed_job(
     candidate_artist_limit: int,
     max_related_per_artist: int,
     max_related_per_illust: int,
+    max_seed_artists: int,
+    max_candidate_artists: int,
     top_n_tags: int,
     top_n_pairs: int,
     max_results: int,
@@ -380,6 +388,8 @@ def cmd_run_seed_job(
             candidate_artist_limit=candidate_artist_limit,
             max_related_per_artist=max_related_per_artist,
             max_related_per_illust=max_related_per_illust,
+            max_seed_artists=max_seed_artists,
+            max_candidate_artists=max_candidate_artists,
             top_n_tags=top_n_tags,
             top_n_pairs=top_n_pairs,
             max_results=max_results,
@@ -612,6 +622,8 @@ def main(argv: list[str] | None = None) -> int:
                 candidate_artist_limit=args.candidate_artist_limit,
                 max_related_per_artist=args.max_related_per_artist,
                 max_related_per_illust=args.max_related_per_illust,
+                max_seed_artists=args.max_seed_artists,
+                max_candidate_artists=args.max_candidate_artists,
                 top_n_tags=args.top_n_tags,
                 top_n_pairs=args.top_n_pairs,
                 max_results=args.max_results,
@@ -633,6 +645,8 @@ def main(argv: list[str] | None = None) -> int:
                 candidate_artist_limit=args.candidate_artist_limit,
                 max_related_per_artist=args.max_related_per_artist,
                 max_related_per_illust=args.max_related_per_illust,
+                max_seed_artists=args.max_seed_artists,
+                max_candidate_artists=args.max_candidate_artists,
                 top_n_tags=args.top_n_tags,
                 top_n_pairs=args.top_n_pairs,
                 max_results=args.max_results,

@@ -17,13 +17,15 @@ class LiveRecommendationRequest:
     seed_user_id: int
     refresh_token_ref: str
     restrict: str = 'public'
-    followed_artist_limit: int = 5
-    candidate_artist_limit: int = 3
-    max_related_per_artist: int = 5
-    max_related_per_illust: int = 5
+    followed_artist_limit: int = 12
+    candidate_artist_limit: int = 8
+    max_related_per_artist: int = 8
+    max_related_per_illust: int = 8
+    max_seed_artists: int = 40
+    max_candidate_artists: int = 80
     top_n_tags: int = 20
     top_n_pairs: int = 20
-    max_results: int = 20
+    max_results: int = 50
     allow_ai: bool = False
     allow_r18: bool = False
     min_total_bookmarks: int = 30
@@ -70,6 +72,7 @@ class LiveRecommendationPipeline:
         followed_hydration_result = self.hydration_service.hydrate_followed_artists(
             seed_user_id=request.seed_user_id,
             per_artist_limit=request.followed_artist_limit,
+            max_artists=request.max_seed_artists,
         )
         profile_summary = self.profile_service.build_profile(
             seed_user_id=request.seed_user_id,
@@ -80,10 +83,12 @@ class LiveRecommendationPipeline:
             seed_user_id=request.seed_user_id,
             max_related_per_artist=request.max_related_per_artist,
             max_related_per_illust=request.max_related_per_illust,
+            max_seed_artists=request.max_seed_artists,
         )
         candidate_hydration_result = self.hydration_service.hydrate_candidate_artists(
             seed_user_id=request.seed_user_id,
             per_artist_limit=request.candidate_artist_limit,
+            max_artists=request.max_candidate_artists,
         )
         ranked_result = self.rank_service.rank_from_store(
             seed_user_id=request.seed_user_id,
