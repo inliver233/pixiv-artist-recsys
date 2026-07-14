@@ -35,4 +35,6 @@ Thumbs.db
 .env.*
 !.env.example
 *.pem
+data/local/
+scripts/_tmp_*.py
 

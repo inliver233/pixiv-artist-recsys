@@ -16,6 +16,7 @@ from ..storage.repositories import RecommendationRepository
 class LiveRecommendationRequest:
     seed_user_id: int
     refresh_token_ref: str
+    following_refresh_token_ref: str | None = None
     restrict: str = 'public'
     followed_artist_limit: int = 12
     candidate_artist_limit: int = 8
@@ -57,19 +58,23 @@ class LiveRecommendationPipeline:
         *,
         repository: RecommendationRepository,
         pixiv_client: PixivAppApiClient,
+        following_pixiv_client: PixivAppApiClient | None = None,
         stop_words: set[str] | None = None,
     ) -> None:
         self.repository = repository
-        self.following_sync_service = FollowingSyncService(repository=repository, pixiv_client=pixiv_client)
+        # Mother account (optional): only used for following sync to reduce risk.
+        following_client = following_pixiv_client or pixiv_client
+        self.following_sync_service = FollowingSyncService(repository=repository, pixiv_client=following_client)
         self.hydration_service = ArtistIllustHydrationService(repository=repository, pixiv_client=pixiv_client)
         self.profile_service = UserTasteProfileService(repository=repository, stop_words=stop_words)
         self.candidate_service = RelatedArtistCandidateService(repository=repository, pixiv_client=pixiv_client)
         self.rank_service = HeuristicArtistRankService(repository=repository)
 
     def run(self, request: LiveRecommendationRequest) -> LiveRecommendationResult:
+        following_token_ref = request.following_refresh_token_ref or request.refresh_token_ref
         following_result = self.following_sync_service.sync_following(
             seed_user_id=request.seed_user_id,
-            refresh_token_ref=request.refresh_token_ref,
+            refresh_token_ref=following_token_ref,
             restrict=request.restrict,
             allow_ai=request.allow_ai,
             allow_r18=request.allow_r18,
@@ -133,6 +138,12 @@ class LiveRecommendationPipeline:
                     'following': {
                         'synced_count': following_result.synced_count,
                         'pages_fetched': following_result.pages_fetched,
+                        'token_ref': following_token_ref,
+                        'ops_token_ref': request.refresh_token_ref,
+                        'mother_child_split': bool(
+                            request.following_refresh_token_ref
+                            and request.following_refresh_token_ref != request.refresh_token_ref
+                        ),
                     },
                     'followed_hydration': {
                         'artists_processed': followed_hydration_result.artists_processed,

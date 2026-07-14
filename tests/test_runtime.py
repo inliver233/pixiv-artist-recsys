@@ -86,6 +86,32 @@ class RuntimeTests(unittest.TestCase):
             'cli-token',
         )
 
+    def test_resolve_following_refresh_token_does_not_fallback_to_ops_token(self) -> None:
+        self.assertEqual(
+            AppRuntime.resolve_following_refresh_token(
+                env={
+                    'PIXIV_ARTIST_RECSYS_FOLLOWING_REFRESH_TOKEN': 'mother-token',
+                    'PIXIV_ARTIST_RECSYS_REFRESH_TOKEN': 'child-token',
+                }
+            ),
+            'mother-token',
+        )
+        self.assertEqual(
+            AppRuntime.resolve_following_refresh_token(env={'PIXIV_FOLLOWING_REFRESH_TOKEN': 'mother-alias'}),
+            'mother-alias',
+        )
+        self.assertEqual(
+            AppRuntime.resolve_following_refresh_token(env={'PIXIV_ARTIST_RECSYS_REFRESH_TOKEN': 'child-only'}),
+            '',
+        )
+        self.assertEqual(
+            AppRuntime.resolve_following_refresh_token(
+                following_refresh_token='cli-mother',
+                env={'PIXIV_ARTIST_RECSYS_FOLLOWING_REFRESH_TOKEN': 'env-mother'},
+            ),
+            'cli-mother',
+        )
+
     def test_runtime_settings_payload_serializes_paths_and_nested_settings(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             env = {

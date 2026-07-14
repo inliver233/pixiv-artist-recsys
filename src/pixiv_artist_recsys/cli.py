@@ -56,8 +56,20 @@ def _add_pixiv_token_args(parser: argparse.ArgumentParser, *, include_seed_user:
     parser.add_argument('--access-token')
 
 
+def _add_following_token_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        '--following-refresh-token',
+        help='Mother-account refresh token used only for following sync (env: PIXIV_ARTIST_RECSYS_FOLLOWING_REFRESH_TOKEN)',
+    )
+    parser.add_argument(
+        '--following-token-key',
+        help='Optional token cache key for mother following account (default: following-seed-user:<id>)',
+    )
+
+
 def _add_recommendation_args(parser: argparse.ArgumentParser, *, settings, include_output: bool = False) -> None:
     _add_pixiv_token_args(parser)
+    _add_following_token_args(parser)
     parser.add_argument('--restrict', default='public')
     parser.add_argument('--followed-artist-limit', type=int, default=8)
     parser.add_argument('--candidate-artist-limit', type=int, default=5)
@@ -124,6 +136,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     sync_following = sub.add_parser('sync-following', help='Sync following list into local sqlite only')
     _add_pixiv_token_args(sync_following)
+    _add_following_token_args(sync_following)
     sync_following.add_argument('--restrict', default='public')
     sync_following.add_argument('--allow-ai', action=argparse.BooleanOptionalAction, default=settings.recommendation.allow_ai)
     sync_following.add_argument('--allow-r18', action=argparse.BooleanOptionalAction, default=settings.recommendation.allow_r18)
@@ -303,6 +316,8 @@ def cmd_sync_following(
     token_key: str | None,
     refresh_token: str | None,
     access_token: str | None,
+    following_refresh_token: str | None,
+    following_token_key: str | None,
     restrict: str,
     allow_ai: bool,
     allow_r18: bool,
@@ -313,6 +328,8 @@ def cmd_sync_following(
             token_key=token_key,
             refresh_token=refresh_token,
             access_token=access_token,
+            following_refresh_token=following_refresh_token,
+            following_token_key=following_token_key,
             restrict=restrict,
             allow_ai=allow_ai,
             allow_r18=allow_r18,
@@ -445,6 +462,8 @@ def cmd_full_recommend(
     token_key: str | None,
     refresh_token: str | None,
     access_token: str | None,
+    following_refresh_token: str | None,
+    following_token_key: str | None,
     restrict: str,
     followed_artist_limit: int,
     candidate_artist_limit: int,
@@ -473,6 +492,8 @@ def cmd_full_recommend(
             token_key=token_key,
             refresh_token=refresh_token,
             access_token=access_token,
+            following_refresh_token=following_refresh_token,
+            following_token_key=following_token_key,
             restrict=restrict,
             followed_artist_limit=followed_artist_limit,
             candidate_artist_limit=candidate_artist_limit,
@@ -505,6 +526,8 @@ def cmd_run_seed_job(
     token_key: str | None,
     refresh_token: str | None,
     access_token: str | None,
+    following_refresh_token: str | None,
+    following_token_key: str | None,
     restrict: str,
     followed_artist_limit: int,
     candidate_artist_limit: int,
@@ -534,6 +557,8 @@ def cmd_run_seed_job(
             token_key=token_key,
             refresh_token=refresh_token,
             access_token=access_token,
+            following_refresh_token=following_refresh_token,
+            following_token_key=following_token_key,
             restrict=restrict,
             followed_artist_limit=followed_artist_limit,
             candidate_artist_limit=candidate_artist_limit,
@@ -756,6 +781,8 @@ def main(argv: list[str] | None = None) -> int:
                 token_key=args.token_key,
                 refresh_token=args.refresh_token,
                 access_token=args.access_token,
+                following_refresh_token=args.following_refresh_token,
+                following_token_key=args.following_token_key,
                 restrict=args.restrict,
                 allow_ai=args.allow_ai,
                 allow_r18=args.allow_r18,
@@ -818,6 +845,8 @@ def main(argv: list[str] | None = None) -> int:
                 token_key=args.token_key,
                 refresh_token=args.refresh_token,
                 access_token=args.access_token,
+                following_refresh_token=args.following_refresh_token,
+                following_token_key=args.following_token_key,
                 restrict=args.restrict,
                 followed_artist_limit=args.followed_artist_limit,
                 candidate_artist_limit=args.candidate_artist_limit,
@@ -846,6 +875,8 @@ def main(argv: list[str] | None = None) -> int:
                 token_key=args.token_key,
                 refresh_token=args.refresh_token,
                 access_token=args.access_token,
+                following_refresh_token=args.following_refresh_token,
+                following_token_key=args.following_token_key,
                 restrict=args.restrict,
                 followed_artist_limit=args.followed_artist_limit,
                 candidate_artist_limit=args.candidate_artist_limit,

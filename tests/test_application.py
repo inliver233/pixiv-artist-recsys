@@ -135,6 +135,42 @@ class ApplicationFacadeTests(unittest.TestCase):
             self.assertEqual(payload['filters']['diversity_per_tag'], 1)
             self.assertTrue(payload['items'])
 
+    def test_facade_full_recommend_uses_separate_mother_token_for_following(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runtime = self._runtime(tmpdir)
+            seen: list[dict[str, object]] = []
+
+            def factory(**kwargs):
+                seen.append(
+                    {
+                        'token_key': kwargs.get('token_key'),
+                        'refresh_token': kwargs.get('refresh_token'),
+                        'access_token': kwargs.get('access_token'),
+                    }
+                )
+                return FakeFullRecommendClient()
+
+            facade = ApplicationFacade(runtime=runtime, pixiv_client_factory=factory)
+            payload = facade.full_recommend_payload(
+                seed_user_id=7,
+                refresh_token='child-token',
+                following_refresh_token='mother-token',
+                followed_artist_limit=1,
+                candidate_artist_limit=1,
+                max_results=5,
+                min_bookmarks=100,
+                min_score=1.0,
+                diversity_per_tag=1,
+            )
+
+            self.assertEqual(payload['recommended_artist_ids'], [2001])
+            self.assertTrue(payload['token_roles']['following_uses_mother'])
+            refresh_tokens = {row['refresh_token'] for row in seen}
+            self.assertIn('child-token', refresh_tokens)
+            self.assertIn('mother-token', refresh_tokens)
+            mother_rows = [row for row in seen if row['refresh_token'] == 'mother-token']
+            self.assertTrue(any(str(row['token_key']).startswith('following-seed-user:') for row in mother_rows))
+
     def test_facade_recommend_from_store_payload_uses_runtime_defaults(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             runtime = self._runtime(tmpdir, PIXIV_ARTIST_RECSYS_MIN_BOOKMARKS='10', PIXIV_ARTIST_RECSYS_MIN_SCORE='0.1', PIXIV_ARTIST_RECSYS_DIVERSITY_PER_TAG='3')

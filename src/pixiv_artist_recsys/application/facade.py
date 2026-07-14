@@ -155,23 +155,42 @@ class ApplicationFacade:
         token_key: str | None = None,
         refresh_token: str | None = None,
         access_token: str | None = None,
+        following_refresh_token: str | None = None,
+        following_token_key: str | None = None,
         restrict: str = 'public',
         allow_ai: bool | None = None,
         allow_r18: bool | None = None,
     ) -> dict[str, Any]:
+        # Prefer mother following token when configured; fall back to ops refresh/access.
+        mother_refresh = AppRuntime.resolve_following_refresh_token(following_refresh_token)
+        if mother_refresh:
+            resolved_refresh = mother_refresh
+            resolved_token_key = following_token_key or token_key or f'following-seed-user:{seed_user_id}'
+            resolved_access = None
+            used_mother = True
+        else:
+            resolved_refresh = refresh_token
+            resolved_token_key = token_key
+            resolved_access = access_token
+            used_mother = False
         pixiv_client = self._build_pixiv_client(
             seed_user_id=seed_user_id,
-            token_key=token_key,
-            refresh_token=refresh_token,
-            access_token=access_token,
+            token_key=resolved_token_key,
+            refresh_token=resolved_refresh,
+            access_token=resolved_access,
         )
         settings = self.runtime.settings.recommendation
+        token_ref = (
+            AppRuntime.resolve_following_refresh_token_ref(following_refresh_token=resolved_refresh)
+            if used_mother
+            else AppRuntime.resolve_refresh_token_ref(refresh_token=resolved_refresh, access_token=resolved_access)
+        )
         result = FollowingSyncService(
             repository=self.runtime.repository,
             pixiv_client=pixiv_client,
         ).sync_following(
             seed_user_id=seed_user_id,
-            refresh_token_ref=AppRuntime.resolve_refresh_token_ref(refresh_token=refresh_token, access_token=access_token),
+            refresh_token_ref=token_ref,
             restrict=restrict,
             allow_ai=settings.allow_ai if allow_ai is None else allow_ai,
             allow_r18=settings.allow_r18 if allow_r18 is None else allow_r18,
@@ -181,6 +200,8 @@ class ApplicationFacade:
             'synced_count': result.synced_count,
             'pages_fetched': result.pages_fetched,
             'restrict': restrict,
+            'used_mother_following_token': used_mother,
+            'token_ref': token_ref,
         }
 
     def hydrate_followed_illusts_payload(
@@ -368,6 +389,8 @@ class ApplicationFacade:
         token_key: str | None = None,
         refresh_token: str | None = None,
         access_token: str | None = None,
+        following_refresh_token: str | None = None,
+        following_token_key: str | None = None,
         restrict: str = 'public',
         followed_artist_limit: int = 8,
         candidate_artist_limit: int = 5,
@@ -396,15 +419,29 @@ class ApplicationFacade:
             refresh_token=refresh_token,
             access_token=access_token,
         )
+        resolved_following_refresh = AppRuntime.resolve_following_refresh_token(following_refresh_token)
+        following_pixiv_client = None
+        following_token_ref = ''
+        if resolved_following_refresh:
+            following_pixiv_client = self._build_pixiv_client(
+                seed_user_id=seed_user_id,
+                token_key=following_token_key or f'following-seed-user:{seed_user_id}',
+                refresh_token=resolved_following_refresh,
+            )
+            following_token_ref = AppRuntime.resolve_following_refresh_token_ref(
+                following_refresh_token=resolved_following_refresh
+            )
         settings = self.runtime.settings.recommendation
         result = LiveRecommendationPipeline(
             repository=self.runtime.repository,
             pixiv_client=pixiv_client,
+            following_pixiv_client=following_pixiv_client,
             stop_words=set(stop_words or []),
         ).run(
             LiveRecommendationRequest(
                 seed_user_id=seed_user_id,
                 refresh_token_ref=AppRuntime.resolve_refresh_token_ref(refresh_token=refresh_token, access_token=access_token),
+                following_refresh_token_ref=following_token_ref or None,
                 restrict=restrict,
                 followed_artist_limit=followed_artist_limit,
                 candidate_artist_limit=candidate_artist_limit,
@@ -443,6 +480,13 @@ class ApplicationFacade:
                 'min_bookmarks': resolved_min_bookmarks,
                 'min_score': resolved_min_score,
                 'diversity_per_tag': resolved_diversity,
+            },
+            'token_roles': {
+                'following_uses_mother': bool(resolved_following_refresh),
+                'following_token_ref': following_token_ref or AppRuntime.resolve_refresh_token_ref(
+                    refresh_token=refresh_token, access_token=access_token
+                ),
+                'ops_token_ref': AppRuntime.resolve_refresh_token_ref(refresh_token=refresh_token, access_token=access_token),
             },
             'stats': {
                 'following_synced': result.following_result.synced_count,

@@ -14,6 +14,8 @@ class SeedJobRequest:
     token_key: str | None = None
     refresh_token: str | None = None
     access_token: str | None = None
+    following_refresh_token: str | None = None
+    following_token_key: str | None = None
     restrict: str = 'public'
     followed_artist_limit: int = 8
     candidate_artist_limit: int = 5
@@ -49,6 +51,8 @@ class SeedJobRequest:
             token_key=_optional_text(payload.get('token_key')),
             refresh_token=_optional_text(payload.get('refresh_token')),
             access_token=_optional_text(payload.get('access_token')),
+            following_refresh_token=_optional_text(payload.get('following_refresh_token')),
+            following_token_key=_optional_text(payload.get('following_token_key')),
             restrict=_optional_text(payload.get('restrict')) or 'public',
             followed_artist_limit=int(payload.get('followed_artist_limit', 8)),
             candidate_artist_limit=int(payload.get('candidate_artist_limit', 5)),
@@ -103,6 +107,8 @@ class SeedJobRunner:
             token_key=request.token_key,
             refresh_token=request.refresh_token,
             access_token=request.access_token,
+            following_refresh_token=request.following_refresh_token,
+            following_token_key=request.following_token_key,
             restrict=request.restrict,
             followed_artist_limit=request.followed_artist_limit,
             candidate_artist_limit=request.candidate_artist_limit,

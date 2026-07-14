@@ -20,12 +20,25 @@ sync-following
 把 `<id>` / `$env:PIXIV_ARTIST_RECSYS_REFRESH_TOKEN` 换成本地值。**不要**把真实 token 写进仓库或 issue。  
 （别名 `PIXIV_REFRESH_TOKEN` 也被 runtime 接受；`.env` 文件不会自动加载，需 export 或传 CLI。）
 
-```powershell
-# 1) 只同步关注
-python -m pixiv_artist_recsys sync-following `
-  --seed-user-id <id> --refresh-token $env:PIXIV_ARTIST_RECSYS_REFRESH_TOKEN
+### 母号 / 子号（可选）
 
-# 2) 补关注画师代表作（可跳过再同步）
+若有「母号只同步关注、子号做其余 API」的需求：
+
+| 变量 / 参数 | 用途 |
+|-------------|------|
+| `PIXIV_ARTIST_RECSYS_FOLLOWING_REFRESH_TOKEN` / `--following-refresh-token` | **母号**，仅 following sync |
+| `PIXIV_ARTIST_RECSYS_REFRESH_TOKEN` / `--refresh-token` | **子号**，hydrate / candidates / full 其余步骤 |
+
+`sync-following` 与 `full-recommend` 会优先用母号 token 拉关注；未配置母号时回退为单一 refresh。  
+从 `pixiv-downloader-personal` 导入本机配置：`python scripts/import_downloader_local_config.py`，再 `. .\data\local\run_env.ps1`。
+
+```powershell
+# 1) 只同步关注（有母号时用 FOLLOWING token）
+python -m pixiv_artist_recsys sync-following `
+  --seed-user-id <id> `
+  --following-refresh-token $env:PIXIV_ARTIST_RECSYS_FOLLOWING_REFRESH_TOKEN
+
+# 2) 补关注画师代表作（可跳过再同步）— 用子号
 python -m pixiv_artist_recsys hydrate-followed-illusts `
   --seed-user-id <id> --refresh-token $env:PIXIV_ARTIST_RECSYS_REFRESH_TOKEN `
   --per-artist-limit 8 --max-artists 40 --no-sync-following

@@ -71,6 +71,27 @@ class AppRuntime:
                 return value
         return ''
 
+    @staticmethod
+    def resolve_following_refresh_token(
+        following_refresh_token: str | None = None,
+        env: Mapping[str, str] | None = None,
+    ) -> str:
+        """Mother-account token used only for following sync when configured.
+
+        Does not fall back to the ops refresh token — empty means "use ops token".
+        """
+        env = env or os.environ
+        if following_refresh_token and str(following_refresh_token).strip():
+            return str(following_refresh_token).strip()
+        for key in (
+            'PIXIV_ARTIST_RECSYS_FOLLOWING_REFRESH_TOKEN',
+            'PIXIV_FOLLOWING_REFRESH_TOKEN',
+        ):
+            value = str(env.get(key, '') or '').strip()
+            if value:
+                return value
+        return ''
+
     @classmethod
     def resolve_refresh_token_ref(
         cls,
@@ -85,6 +106,18 @@ class AppRuntime:
         if cls.resolve_access_token(access_token, env):
             return 'access-token-only'
         return 'masked:'
+
+    @classmethod
+    def resolve_following_refresh_token_ref(
+        cls,
+        *,
+        following_refresh_token: str | None = None,
+        env: Mapping[str, str] | None = None,
+    ) -> str:
+        resolved = cls.resolve_following_refresh_token(following_refresh_token, env)
+        if resolved:
+            return PixivTokenRecord.mask_refresh_token(resolved)
+        return ''
 
     def proxy_state_payload(self) -> dict[str, object]:
         return {
