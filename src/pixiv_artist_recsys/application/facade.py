@@ -148,6 +148,41 @@ class ApplicationFacade:
             payload['output_path'] = str(output_path)
         return payload
 
+    def sync_following_payload(
+        self,
+        *,
+        seed_user_id: int,
+        token_key: str | None = None,
+        refresh_token: str | None = None,
+        access_token: str | None = None,
+        restrict: str = 'public',
+        allow_ai: bool | None = None,
+        allow_r18: bool | None = None,
+    ) -> dict[str, Any]:
+        pixiv_client = self._build_pixiv_client(
+            seed_user_id=seed_user_id,
+            token_key=token_key,
+            refresh_token=refresh_token,
+            access_token=access_token,
+        )
+        settings = self.runtime.settings.recommendation
+        result = FollowingSyncService(
+            repository=self.runtime.repository,
+            pixiv_client=pixiv_client,
+        ).sync_following(
+            seed_user_id=seed_user_id,
+            refresh_token_ref=AppRuntime.resolve_refresh_token_ref(refresh_token=refresh_token, access_token=access_token),
+            restrict=restrict,
+            allow_ai=settings.allow_ai if allow_ai is None else allow_ai,
+            allow_r18=settings.allow_r18 if allow_r18 is None else allow_r18,
+        )
+        return {
+            'seed_user_id': result.seed_user_id,
+            'synced_count': result.synced_count,
+            'pages_fetched': result.pages_fetched,
+            'restrict': restrict,
+        }
+
     def hydrate_followed_illusts_payload(
         self,
         *,
@@ -156,6 +191,9 @@ class ApplicationFacade:
         refresh_token: str | None = None,
         access_token: str | None = None,
         per_artist_limit: int = 5,
+        max_artists: int | None = 40,
+        sync_following: bool = True,
+        restrict: str = 'public',
     ) -> dict[str, Any]:
         pixiv_client = self._build_pixiv_client(
             seed_user_id=seed_user_id,
@@ -163,26 +201,113 @@ class ApplicationFacade:
             refresh_token=refresh_token,
             access_token=access_token,
         )
-        following_result = FollowingSyncService(
-            repository=self.runtime.repository,
-            pixiv_client=pixiv_client,
-        ).sync_following(
-            seed_user_id=seed_user_id,
-            refresh_token_ref=AppRuntime.resolve_refresh_token_ref(refresh_token=refresh_token, access_token=access_token),
-        )
+        following_synced = 0
+        if sync_following:
+            following_result = FollowingSyncService(
+                repository=self.runtime.repository,
+                pixiv_client=pixiv_client,
+            ).sync_following(
+                seed_user_id=seed_user_id,
+                refresh_token_ref=AppRuntime.resolve_refresh_token_ref(refresh_token=refresh_token, access_token=access_token),
+                restrict=restrict,
+            )
+            following_synced = following_result.synced_count
         result = ArtistIllustHydrationService(
             repository=self.runtime.repository,
             pixiv_client=pixiv_client,
         ).hydrate_followed_artists(
             seed_user_id=seed_user_id,
             per_artist_limit=per_artist_limit,
+            max_artists=max_artists,
         )
         return {
             'seed_user_id': result.seed_user_id,
-            'following_synced': following_result.synced_count,
+            'following_synced': following_synced,
             'artists_processed': result.artists_processed,
             'illusts_upserted': result.illusts_upserted,
             'per_artist_limit': per_artist_limit,
+            'max_artists': max_artists,
+            'sync_following': sync_following,
+        }
+
+    def hydrate_candidate_illusts_payload(
+        self,
+        *,
+        seed_user_id: int,
+        token_key: str | None = None,
+        refresh_token: str | None = None,
+        access_token: str | None = None,
+        per_artist_limit: int = 3,
+        max_artists: int | None = 80,
+    ) -> dict[str, Any]:
+        pixiv_client = self._build_pixiv_client(
+            seed_user_id=seed_user_id,
+            token_key=token_key,
+            refresh_token=refresh_token,
+            access_token=access_token,
+        )
+        result = ArtistIllustHydrationService(
+            repository=self.runtime.repository,
+            pixiv_client=pixiv_client,
+        ).hydrate_candidate_artists(
+            seed_user_id=seed_user_id,
+            per_artist_limit=per_artist_limit,
+            max_artists=max_artists,
+        )
+        return {
+            'seed_user_id': result.seed_user_id,
+            'scope': result.scope,
+            'artists_processed': result.artists_processed,
+            'illusts_upserted': result.illusts_upserted,
+            'per_artist_limit': per_artist_limit,
+            'max_artists': max_artists,
+        }
+
+    def build_candidates_payload(
+        self,
+        *,
+        seed_user_id: int,
+        token_key: str | None = None,
+        refresh_token: str | None = None,
+        access_token: str | None = None,
+        max_related_per_artist: int = 5,
+        max_related_per_illust: int = 5,
+        max_seed_artists: int = 40,
+        enable_user_recommended: bool = True,
+        max_user_recommended: int = 30,
+        enable_tag_search: bool = True,
+        max_tag_search_tags: int = 5,
+        max_tag_search_illusts: int = 20,
+    ) -> dict[str, Any]:
+        from ..candidate import RelatedArtistCandidateService
+
+        pixiv_client = self._build_pixiv_client(
+            seed_user_id=seed_user_id,
+            token_key=token_key,
+            refresh_token=refresh_token,
+            access_token=access_token,
+        )
+        result = RelatedArtistCandidateService(
+            repository=self.runtime.repository,
+            pixiv_client=pixiv_client,
+        ).build_candidates(
+            seed_user_id=seed_user_id,
+            max_related_per_artist=max_related_per_artist,
+            max_related_per_illust=max_related_per_illust,
+            max_seed_artists=max_seed_artists,
+            enable_user_recommended=enable_user_recommended,
+            max_user_recommended=max_user_recommended,
+            enable_tag_search=enable_tag_search,
+            max_tag_search_tags=max_tag_search_tags,
+            max_tag_search_illusts=max_tag_search_illusts,
+        )
+        return {
+            'seed_user_id': result.seed_user_id,
+            'candidate_count': result.candidate_count,
+            'evidence_count': result.evidence_count,
+            'max_seed_artists': max_seed_artists,
+            'enable_user_recommended': enable_user_recommended,
+            'enable_tag_search': enable_tag_search,
         }
 
     def build_profile_payload(

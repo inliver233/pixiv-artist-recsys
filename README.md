@@ -63,6 +63,21 @@ python -m pixiv_artist_recsys full-recommend `
 | 日常推荐 | 8 | 40 | 5 | 80 | 50 |
 | 深度扫描 | 12 | 80 | 8 | 150 | 80 |
 
+### 分步长跑（可恢复）
+
+适合关注数较多、需要断点续跑：
+
+```powershell
+python -m pixiv_artist_recsys sync-following --seed-user-id <id> --refresh-token $env:PIXIV_REFRESH_TOKEN
+python -m pixiv_artist_recsys hydrate-followed-illusts --seed-user-id <id> --refresh-token $env:PIXIV_REFRESH_TOKEN --max-artists 40 --no-sync-following
+python -m pixiv_artist_recsys build-profile --seed-user-id <id>
+python -m pixiv_artist_recsys build-candidates --seed-user-id <id> --refresh-token $env:PIXIV_REFRESH_TOKEN --max-seed-artists 40
+python -m pixiv_artist_recsys hydrate-candidate-illusts --seed-user-id <id> --refresh-token $env:PIXIV_REFRESH_TOKEN --max-artists 80
+python -m pixiv_artist_recsys recommend-from-store --seed-user-id <id> --max-results 50
+```
+
+运维说明、代理与故障表：`docs/ops/step-pipeline-and-troubleshooting.md`
+
 ### 其它常用命令
 
 ```powershell
@@ -75,8 +90,8 @@ python -m pixiv_artist_recsys recommend-from-store --seed-user-id <id> --max-res
 # 负反馈
 python -m pixiv_artist_recsys record-feedback --seed-user-id <id> --artist-user-id <uid> --action dislike
 
-# 批处理
-python -m pixiv_artist_recsys run-manifest --manifest path\to\jobs.json
+# 批处理（示例见 examples/manifest-daily.json）
+python -m pixiv_artist_recsys run-manifest --manifest examples/manifest-daily.json --output-dir data/exports
 ```
 
 ## 模块地图
@@ -115,5 +130,5 @@ cli.py         命令入口
 
 1. M0/M1 稳定性 ✅（token 轮换、采样上限、错误信息、文档）
 2. M2 召回扩展 / 排序增强 / HTTP retry ✅
-3. M3 分步运行与长跑
+3. M3 分步运行与长跑 ✅（sync / hydrate / profile / candidates / rank + manifest 示例 + ops 文档）
 4. M4 v1 冻结

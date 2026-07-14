@@ -122,12 +122,29 @@ def build_parser() -> argparse.ArgumentParser:
     dry.add_argument('--refresh-token-ref', default='masked:token')
     dry.add_argument('--max-results', type=int, default=settings.recommendation.max_results)
 
+    sync_following = sub.add_parser('sync-following', help='Sync following list into local sqlite only')
+    _add_pixiv_token_args(sync_following)
+    sync_following.add_argument('--restrict', default='public')
+    sync_following.add_argument('--allow-ai', action=argparse.BooleanOptionalAction, default=settings.recommendation.allow_ai)
+    sync_following.add_argument('--allow-r18', action=argparse.BooleanOptionalAction, default=settings.recommendation.allow_r18)
+
     hydrate = sub.add_parser('hydrate-followed-illusts', help="Hydrate followed artists' representative illusts into local sqlite")
     hydrate.add_argument('--seed-user-id', type=int, required=True)
     hydrate.add_argument('--token-key')
     hydrate.add_argument('--refresh-token')
     hydrate.add_argument('--access-token')
     hydrate.add_argument('--per-artist-limit', type=int, default=5)
+    hydrate.add_argument('--max-artists', type=int, default=40)
+    hydrate.add_argument('--sync-following', action=argparse.BooleanOptionalAction, default=True)
+    hydrate.add_argument('--restrict', default='public')
+
+    hydrate_candidates = sub.add_parser('hydrate-candidate-illusts', help="Hydrate candidate artists' illusts from local candidate table")
+    hydrate_candidates.add_argument('--seed-user-id', type=int, required=True)
+    hydrate_candidates.add_argument('--token-key')
+    hydrate_candidates.add_argument('--refresh-token')
+    hydrate_candidates.add_argument('--access-token')
+    hydrate_candidates.add_argument('--per-artist-limit', type=int, default=3)
+    hydrate_candidates.add_argument('--max-artists', type=int, default=80)
 
     profile = sub.add_parser('build-profile', help='Build local taste profile from hydrated followed artists')
     profile.add_argument('--seed-user-id', type=int, required=True)
@@ -135,10 +152,25 @@ def build_parser() -> argparse.ArgumentParser:
     profile.add_argument('--top-n-pairs', type=int, default=20)
     profile.add_argument('--stop-word', action='append', default=[])
 
+    build_candidates = sub.add_parser('build-candidates', help='Build multi-source artist candidates into local sqlite')
+    _add_pixiv_token_args(build_candidates)
+    build_candidates.add_argument('--max-related-per-artist', type=int, default=5)
+    build_candidates.add_argument('--max-related-per-illust', type=int, default=5)
+    build_candidates.add_argument('--max-seed-artists', type=int, default=40)
+    build_candidates.add_argument('--enable-user-recommended', action=argparse.BooleanOptionalAction, default=True)
+    build_candidates.add_argument('--max-user-recommended', type=int, default=30)
+    build_candidates.add_argument('--enable-tag-search', action=argparse.BooleanOptionalAction, default=True)
+    build_candidates.add_argument('--max-tag-search-tags', type=int, default=5)
+    build_candidates.add_argument('--max-tag-search-illusts', type=int, default=20)
+
     recommend = sub.add_parser('recommend-from-store', help='Rank locally stored candidate artists')
     recommend.add_argument('--seed-user-id', type=int, required=True)
     recommend.add_argument('--max-results', type=int, default=settings.recommendation.max_results)
     recommend.add_argument('--diversity-per-tag', type=int, default=settings.recommendation.diversity_per_tag)
+    recommend.add_argument('--allow-ai', action=argparse.BooleanOptionalAction, default=settings.recommendation.allow_ai)
+    recommend.add_argument('--allow-r18', action=argparse.BooleanOptionalAction, default=settings.recommendation.allow_r18)
+    recommend.add_argument('--min-bookmarks', type=int, default=settings.recommendation.min_bookmarks)
+    recommend.add_argument('--min-score', type=float, default=settings.recommendation.min_score)
 
     full = sub.add_parser('full-recommend', help='Run the full live Pixiv recommendation pipeline')
     _add_recommendation_args(full, settings=settings)
@@ -265,6 +297,30 @@ def cmd_dry_run_recommend(seed_user_id: int, refresh_token_ref: str, max_results
     return 0
 
 
+def cmd_sync_following(
+    *,
+    seed_user_id: int,
+    token_key: str | None,
+    refresh_token: str | None,
+    access_token: str | None,
+    restrict: str,
+    allow_ai: bool,
+    allow_r18: bool,
+) -> int:
+    _print_payload(
+        _build_facade().sync_following_payload(
+            seed_user_id=seed_user_id,
+            token_key=token_key,
+            refresh_token=refresh_token,
+            access_token=access_token,
+            restrict=restrict,
+            allow_ai=allow_ai,
+            allow_r18=allow_r18,
+        )
+    )
+    return 0
+
+
 def cmd_hydrate_followed_illusts(
     *,
     seed_user_id: int,
@@ -272,6 +328,9 @@ def cmd_hydrate_followed_illusts(
     refresh_token: str | None,
     access_token: str | None,
     per_artist_limit: int,
+    max_artists: int,
+    sync_following: bool,
+    restrict: str,
 ) -> int:
     _print_payload(
         _build_facade().hydrate_followed_illusts_payload(
@@ -280,6 +339,31 @@ def cmd_hydrate_followed_illusts(
             refresh_token=refresh_token,
             access_token=access_token,
             per_artist_limit=per_artist_limit,
+            max_artists=max_artists,
+            sync_following=sync_following,
+            restrict=restrict,
+        )
+    )
+    return 0
+
+
+def cmd_hydrate_candidate_illusts(
+    *,
+    seed_user_id: int,
+    token_key: str | None,
+    refresh_token: str | None,
+    access_token: str | None,
+    per_artist_limit: int,
+    max_artists: int,
+) -> int:
+    _print_payload(
+        _build_facade().hydrate_candidate_illusts_payload(
+            seed_user_id=seed_user_id,
+            token_key=token_key,
+            refresh_token=refresh_token,
+            access_token=access_token,
+            per_artist_limit=per_artist_limit,
+            max_artists=max_artists,
         )
     )
     return 0
@@ -297,12 +381,59 @@ def cmd_build_profile(*, seed_user_id: int, top_n_tags: int, top_n_pairs: int, s
     return 0
 
 
-def cmd_recommend_from_store(*, seed_user_id: int, max_results: int, diversity_per_tag: int) -> int:
+def cmd_build_candidates(
+    *,
+    seed_user_id: int,
+    token_key: str | None,
+    refresh_token: str | None,
+    access_token: str | None,
+    max_related_per_artist: int,
+    max_related_per_illust: int,
+    max_seed_artists: int,
+    enable_user_recommended: bool,
+    max_user_recommended: int,
+    enable_tag_search: bool,
+    max_tag_search_tags: int,
+    max_tag_search_illusts: int,
+) -> int:
+    _print_payload(
+        _build_facade().build_candidates_payload(
+            seed_user_id=seed_user_id,
+            token_key=token_key,
+            refresh_token=refresh_token,
+            access_token=access_token,
+            max_related_per_artist=max_related_per_artist,
+            max_related_per_illust=max_related_per_illust,
+            max_seed_artists=max_seed_artists,
+            enable_user_recommended=enable_user_recommended,
+            max_user_recommended=max_user_recommended,
+            enable_tag_search=enable_tag_search,
+            max_tag_search_tags=max_tag_search_tags,
+            max_tag_search_illusts=max_tag_search_illusts,
+        )
+    )
+    return 0
+
+
+def cmd_recommend_from_store(
+    *,
+    seed_user_id: int,
+    max_results: int,
+    diversity_per_tag: int,
+    allow_ai: bool,
+    allow_r18: bool,
+    min_bookmarks: int,
+    min_score: float,
+) -> int:
     _print_payload(
         _build_facade().recommend_from_store_payload(
             seed_user_id=seed_user_id,
             max_results=max_results,
             diversity_per_tag=diversity_per_tag,
+            allow_ai=allow_ai,
+            allow_r18=allow_r18,
+            min_bookmarks=min_bookmarks,
+            min_score=min_score,
         )
     )
     return 0
@@ -619,6 +750,16 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_export_run(run_id=args.run_id, output=args.output)
         if args.command == 'dry-run-recommend':
             return cmd_dry_run_recommend(args.seed_user_id, args.refresh_token_ref, args.max_results)
+        if args.command == 'sync-following':
+            return cmd_sync_following(
+                seed_user_id=args.seed_user_id,
+                token_key=args.token_key,
+                refresh_token=args.refresh_token,
+                access_token=args.access_token,
+                restrict=args.restrict,
+                allow_ai=args.allow_ai,
+                allow_r18=args.allow_r18,
+            )
         if args.command == 'hydrate-followed-illusts':
             return cmd_hydrate_followed_illusts(
                 seed_user_id=args.seed_user_id,
@@ -626,6 +767,18 @@ def main(argv: list[str] | None = None) -> int:
                 refresh_token=args.refresh_token,
                 access_token=args.access_token,
                 per_artist_limit=args.per_artist_limit,
+                max_artists=args.max_artists,
+                sync_following=args.sync_following,
+                restrict=args.restrict,
+            )
+        if args.command == 'hydrate-candidate-illusts':
+            return cmd_hydrate_candidate_illusts(
+                seed_user_id=args.seed_user_id,
+                token_key=args.token_key,
+                refresh_token=args.refresh_token,
+                access_token=args.access_token,
+                per_artist_limit=args.per_artist_limit,
+                max_artists=args.max_artists,
             )
         if args.command == 'build-profile':
             return cmd_build_profile(
@@ -634,8 +787,31 @@ def main(argv: list[str] | None = None) -> int:
                 top_n_pairs=args.top_n_pairs,
                 stop_words=args.stop_word,
             )
+        if args.command == 'build-candidates':
+            return cmd_build_candidates(
+                seed_user_id=args.seed_user_id,
+                token_key=args.token_key,
+                refresh_token=args.refresh_token,
+                access_token=args.access_token,
+                max_related_per_artist=args.max_related_per_artist,
+                max_related_per_illust=args.max_related_per_illust,
+                max_seed_artists=args.max_seed_artists,
+                enable_user_recommended=args.enable_user_recommended,
+                max_user_recommended=args.max_user_recommended,
+                enable_tag_search=args.enable_tag_search,
+                max_tag_search_tags=args.max_tag_search_tags,
+                max_tag_search_illusts=args.max_tag_search_illusts,
+            )
         if args.command == 'recommend-from-store':
-            return cmd_recommend_from_store(seed_user_id=args.seed_user_id, max_results=args.max_results, diversity_per_tag=args.diversity_per_tag)
+            return cmd_recommend_from_store(
+                seed_user_id=args.seed_user_id,
+                max_results=args.max_results,
+                diversity_per_tag=args.diversity_per_tag,
+                allow_ai=args.allow_ai,
+                allow_r18=args.allow_r18,
+                min_bookmarks=args.min_bookmarks,
+                min_score=args.min_score,
+            )
         if args.command == 'full-recommend':
             return cmd_full_recommend(
                 seed_user_id=args.seed_user_id,

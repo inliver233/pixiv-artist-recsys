@@ -9,10 +9,12 @@
 1. Auth: refresh token / access token 管理（DB 优先 rotated refresh）
 2. Ingest: 同步关注 + 代表作 hydrate（`max_seed_artists` 上限）
 3. Profile: tags / tag pairs / negative profile
-4. Candidate: related 召回（`max_seed_artists` 控制种子规模）
-5. Hydrate: 候选画师作品（`max_candidate_artists` 上限）
-6. Rank: quality + taste + diversity + feedback suppression
+4. Candidate: multi-source 召回（`max_seed_artists` 控制种子规模；CLI `build-candidates`）
+5. Hydrate: 候选画师作品（`max_candidate_artists` 上限；CLI `hydrate-candidate-illusts`）
+6. Rank: quality + taste + diversity + feedback suppression（CLI `recommend-from-store`）
 7. Feedback / Audit: 事件回流 + run 审计快照
+
+分步 CLI 可独立重跑：`sync-following` → `hydrate-followed-illusts`（`--no-sync-following`）→ `build-profile` → `build-candidates` → `hydrate-candidate-illusts` → `recommend-from-store`。详见 `docs/ops/step-pipeline-and-troubleshooting.md`。
 
 ## Implemented baseline
 
@@ -63,4 +65,5 @@
 - Phase 1–12: dry-run → live pipeline → guardrails → proxy → feedback → runtime → API → jobs ✅
 - M0/M1: token 轮换、采样上限、错误可诊断、文档 ✅
 - M2: multi-source recall + rank quality + HTTP retry ✅
-- 后续 M3–M4：分步运行模式 / 长跑 / v1 冻结 — 见 `计划书.md`
+- M3: 分步 CLI + manifest 示例 + ops 故障表 ✅
+- 后续 M4：实网清单 / 版本冻结 — 见 `计划书.md`

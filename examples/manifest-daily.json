@@ -1,0 +1,29 @@
+{
+  "jobs": [
+    {
+      "seed_user_id": 12345678,
+      "refresh_token": "REPLACE_WITH_LOCAL_REFRESH_TOKEN",
+      "restrict": "public",
+      "followed_artist_limit": 8,
+      "candidate_artist_limit": 5,
+      "max_related_per_artist": 8,
+      "max_related_per_illust": 8,
+      "max_seed_artists": 40,
+      "max_candidate_artists": 80,
+      "enable_user_recommended": true,
+      "max_user_recommended": 30,
+      "enable_tag_search": true,
+      "max_tag_search_tags": 5,
+      "max_tag_search_illusts": 20,
+      "top_n_tags": 20,
+      "top_n_pairs": 20,
+      "max_results": 50,
+      "allow_ai": false,
+      "allow_r18": false,
+      "min_bookmarks": 30,
+      "min_score": 0.5,
+      "diversity_per_tag": 2,
+      "output_name": "daily-seed.json"
+    }
+  ]
+}

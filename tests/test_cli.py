@@ -478,6 +478,84 @@ class CLITests(unittest.TestCase):
             self.assertEqual(payload['artists_processed'], 2)
             self.assertEqual(payload['illusts_upserted'], 2)
             self.assertEqual(repo.count_rows('illusts'), 2)
+            self.assertTrue(payload['sync_following'])
+            self.assertEqual(payload['max_artists'], 40)
+
+    def test_sync_following_and_offline_step_pipeline(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch('pixiv_artist_recsys.cli._build_pixiv_client', return_value=FakeFullRecommendClient()):
+                exit_code, sync_payload = self._run_main_inprocess(
+                    'sync-following',
+                    '--seed-user-id', '7',
+                    '--refresh-token', 'dummy-refresh-token',
+                    tmpdir=tmpdir,
+                )
+                self.assertEqual(exit_code, 0)
+                self.assertEqual(sync_payload['synced_count'], 2)
+                self.assertEqual(sync_payload['pages_fetched'], 1)
+
+                exit_code, hydrate_payload = self._run_main_inprocess(
+                    'hydrate-followed-illusts',
+                    '--seed-user-id', '7',
+                    '--refresh-token', 'dummy-refresh-token',
+                    '--per-artist-limit', '1',
+                    '--max-artists', '1',
+                    '--no-sync-following',
+                    tmpdir=tmpdir,
+                )
+                self.assertEqual(exit_code, 0)
+                self.assertFalse(hydrate_payload['sync_following'])
+                self.assertEqual(hydrate_payload['following_synced'], 0)
+                self.assertEqual(hydrate_payload['artists_processed'], 1)
+                self.assertEqual(hydrate_payload['max_artists'], 1)
+
+                exit_code, profile_payload = self._run_main_inprocess(
+                    'build-profile',
+                    '--seed-user-id', '7',
+                    tmpdir=tmpdir,
+                )
+                self.assertEqual(exit_code, 0)
+                self.assertGreaterEqual(profile_payload['artist_count'], 1)
+                self.assertTrue(profile_payload['top_tags'])
+
+                exit_code, candidates_payload = self._run_main_inprocess(
+                    'build-candidates',
+                    '--seed-user-id', '7',
+                    '--refresh-token', 'dummy-refresh-token',
+                    '--max-seed-artists', '2',
+                    '--no-enable-user-recommended',
+                    '--no-enable-tag-search',
+                    tmpdir=tmpdir,
+                )
+                self.assertEqual(exit_code, 0)
+                self.assertGreaterEqual(candidates_payload['candidate_count'], 1)
+                self.assertFalse(candidates_payload['enable_user_recommended'])
+                self.assertFalse(candidates_payload['enable_tag_search'])
+
+                exit_code, cand_hydrate = self._run_main_inprocess(
+                    'hydrate-candidate-illusts',
+                    '--seed-user-id', '7',
+                    '--refresh-token', 'dummy-refresh-token',
+                    '--per-artist-limit', '1',
+                    '--max-artists', '2',
+                    tmpdir=tmpdir,
+                )
+                self.assertEqual(exit_code, 0)
+                self.assertEqual(cand_hydrate['scope'], 'candidate')
+                self.assertGreaterEqual(cand_hydrate['artists_processed'], 1)
+
+                exit_code, rank_payload = self._run_main_inprocess(
+                    'recommend-from-store',
+                    '--seed-user-id', '7',
+                    '--max-results', '5',
+                    '--diversity-per-tag', '1',
+                    '--min-bookmarks', '100',
+                    '--min-score', '0.1',
+                    tmpdir=tmpdir,
+                )
+                self.assertEqual(exit_code, 0)
+                self.assertGreaterEqual(rank_payload['item_count'], 1)
+                self.assertEqual(rank_payload['items'][0]['artist_user_id'], 2001)
 
     def test_full_recommend_runs_pipeline_and_returns_uid_list(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
