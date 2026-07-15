@@ -67,17 +67,24 @@ class RelatedArtistCandidateService:
         max_following_per_seed_artist: int = 30,
         seed_following_sample: str = 'random',
         seed_following_restrict: str = 'public',
+        merge_candidates: bool = False,
+        sample_salt: int | str | None = None,
+        explore_ratio: float = 0.25,
         on_progress: ProgressCallback | None = None,
     ) -> CandidateArtistResult:
         followed_artist_ids = set(self.repository.list_following_artist_ids(seed_user_id=seed_user_id))
         evidence_rows: list[tuple[int, str, str, float, str]] = []
         hydrated_artist_cache: dict[int, Artist] = {}
-        # Default random sample so each run explores different seeds from large lists (~2600).
+        quality_scores = self._followed_quality_scores(followed_artist_ids)
+        # quality_first prefers high-bookmark followed artists as recall seeds.
         seed_artist_ids = sample_ids(
             followed_artist_ids,
             seed_user_id=seed_user_id,
             limit=max(0, int(max_seed_artists)),
             mode=seed_sample,
+            quality_scores=quality_scores,
+            sample_salt=sample_salt,
+            explore_ratio=explore_ratio,
         )
         total_seeds = len(seed_artist_ids)
 
@@ -146,6 +153,8 @@ class RelatedArtistCandidateService:
                 seed_user_id=seed_user_id,
                 max_artists=max(0, int(max_seed_following_artists)),
                 sample_mode=seed_following_sample,
+                sample_salt=sample_salt,
+                explore_ratio=explore_ratio,
             )
             emit(
                 on_progress,
@@ -303,23 +312,46 @@ class RelatedArtistCandidateService:
 
         for artist in hydrated_artist_cache.values():
             self.repository.upsert_artist(artist)
-        self.repository.replace_artist_candidates(seed_user_id=seed_user_id, candidates=evidence_rows)
-        candidate_count = len({row[0] for row in evidence_rows})
+        self.repository.replace_artist_candidates(
+            seed_user_id=seed_user_id,
+            candidates=evidence_rows,
+            merge=bool(merge_candidates),
+        )
+        # After merge, report store totals so progress reflects accumulated pool.
+        stored = self.repository.fetch_artist_candidates(seed_user_id=seed_user_id)
+        candidate_count = len({row[0] for row in stored}) if merge_candidates else len({row[0] for row in evidence_rows})
+        evidence_count = len(stored) if merge_candidates else len(evidence_rows)
         emit(
             on_progress,
             stage='candidates',
             event='done',
             current=total_seeds,
             total=total_seeds,
-            message=f'done candidates={candidate_count} evidence={len(evidence_rows)}',
+            message=(
+                f'done candidates={candidate_count} evidence={evidence_count}'
+                f'{" (merged)" if merge_candidates else ""}'
+            ),
             candidate_count=candidate_count,
-            evidence_count=len(evidence_rows),
+            evidence_count=evidence_count,
+            merge_candidates=bool(merge_candidates),
         )
         return CandidateArtistResult(
             seed_user_id=seed_user_id,
             candidate_count=candidate_count,
-            evidence_count=len(evidence_rows),
+            evidence_count=evidence_count,
         )
+
+    def _followed_quality_scores(self, followed_artist_ids: set[int] | list[int]) -> dict[int, float]:
+        scores: dict[int, float] = {}
+        for artist_id in followed_artist_ids:
+            illusts = self.repository.fetch_illusts_for_artist(artist_user_id=int(artist_id))
+            if not illusts:
+                scores[int(artist_id)] = 0.0
+                continue
+            max_bm = max(int(i.total_bookmarks or 0) for i in illusts)
+            # log-scale so mega-popular artists do not fully dominate seed picks.
+            scores[int(artist_id)] = float(max_bm)
+        return scores
 
     def _accept_user_candidate(
         self,
@@ -356,10 +388,13 @@ class RelatedArtistCandidateService:
         seed_user_id: int,
         max_artists: int,
         sample_mode: str,
+        sample_salt: int | str | None = None,
+        explore_ratio: float = 0.25,
     ) -> list[int]:
         """Pick which followed artists' public following lists to expand.
 
         Modes:
+        - quality_first: prefer high local max-bookmarks, keep explore slice.
         - random (default): true random each run.
         - hydrated_first: prefer artists that already have local illusts, then random fill.
         - hash: deterministic pseudo-random subset (stable across runs for same seed_user).
@@ -368,14 +403,31 @@ class RelatedArtistCandidateService:
         if max_artists <= 0 or not pool_ids:
             return []
         mode = (sample_mode or 'random').strip().lower()
-        if mode not in {'random', 'hydrated_first', 'hash', 'first'}:
+        if mode not in {'random', 'hydrated_first', 'hash', 'first', 'quality_first', 'quality'}:
             mode = 'random'
 
         if mode == 'first':
             return sorted(pool_ids)[:max_artists]
 
         if mode == 'hash':
-            return hash_sample_ids(pool_ids, seed_user_id=seed_user_id, limit=max_artists)
+            return hash_sample_ids(
+                pool_ids,
+                seed_user_id=seed_user_id,
+                limit=max_artists,
+                sample_salt=sample_salt,
+            )
+
+        if mode in {'quality_first', 'quality'}:
+            scores = self._followed_quality_scores(pool_ids)
+            return sample_ids(
+                pool_ids,
+                seed_user_id=seed_user_id,
+                limit=max_artists,
+                mode='quality_first',
+                quality_scores=scores,
+                sample_salt=sample_salt,
+                explore_ratio=explore_ratio,
+            )
 
         if mode == 'random':
             return sample_ids(pool_ids, seed_user_id=seed_user_id, limit=max_artists, mode='random')

@@ -32,17 +32,22 @@ class ArtistIllustHydrationService:
         per_artist_limit: int = 10,
         max_artists: int | None = 90,
         seed_sample: str = 'random',
+        sample_salt: int | str | None = None,
+        explore_ratio: float = 0.25,
         on_progress: ProgressCallback | None = None,
     ) -> ArtistIllustHydrationResult:
         artists = self.repository.list_followed_artists(seed_user_id=seed_user_id)
         artist_ids = [artist.user_id for artist in artists]
         if max_artists is not None:
-            # Default random: each run explores a different slice of a large following list.
+            quality_scores = self._quality_scores(artist_ids)
             artist_ids = sample_ids(
                 artist_ids,
                 seed_user_id=seed_user_id,
                 limit=max(0, int(max_artists)),
                 mode=seed_sample,
+                quality_scores=quality_scores,
+                sample_salt=sample_salt,
+                explore_ratio=explore_ratio,
             )
         return self._hydrate_artist_ids(
             seed_user_id=seed_user_id,
@@ -59,6 +64,8 @@ class ArtistIllustHydrationService:
         per_artist_limit: int = 6,
         max_artists: int | None = 130,
         seed_sample: str = 'random',
+        sample_salt: int | str | None = None,
+        explore_ratio: float = 0.25,
         on_progress: ProgressCallback | None = None,
     ) -> ArtistIllustHydrationResult:
         followed_ids = set(self.repository.list_following_artist_ids(seed_user_id=seed_user_id))
@@ -70,11 +77,16 @@ class ArtistIllustHydrationService:
                 self.repository.upsert_artist(Artist(user_id=artist_user_id, name=f'artist-{artist_user_id}', is_followed=False))
             candidate_ids.append(artist_user_id)
         if max_artists is not None:
+            # Prefer multi-source / higher-weight candidates when quality scores available.
+            quality_scores = self._candidate_priority_scores(seed_user_id=seed_user_id, candidate_ids=candidate_ids)
             candidate_ids = sample_ids(
                 candidate_ids,
                 seed_user_id=seed_user_id,
                 limit=max(0, int(max_artists)),
                 mode=seed_sample,
+                quality_scores=quality_scores,
+                sample_salt=sample_salt,
+                explore_ratio=explore_ratio,
             )
         return self._hydrate_artist_ids(
             seed_user_id=seed_user_id,
@@ -83,6 +95,33 @@ class ArtistIllustHydrationService:
             scope='candidate',
             on_progress=on_progress,
         )
+
+    def _quality_scores(self, artist_ids: list[int]) -> dict[int, float]:
+        scores: dict[int, float] = {}
+        for artist_id in artist_ids:
+            illusts = self.repository.fetch_illusts_for_artist(artist_user_id=int(artist_id))
+            if not illusts:
+                scores[int(artist_id)] = 0.0
+                continue
+            scores[int(artist_id)] = float(max(int(i.total_bookmarks or 0) for i in illusts))
+        return scores
+
+    def _candidate_priority_scores(self, *, seed_user_id: int, candidate_ids: list[int]) -> dict[int, float]:
+        """Score candidates for hydrate sampling: evidence weight sum + local max bookmarks."""
+        weight_sum: dict[int, float] = {int(cid): 0.0 for cid in candidate_ids}
+        for candidate_user_id, _source_type, _source_key, weight, _detail in self.repository.fetch_artist_candidates(
+            seed_user_id=seed_user_id
+        ):
+            cid = int(candidate_user_id)
+            if cid in weight_sum:
+                weight_sum[cid] += float(weight)
+        scores: dict[int, float] = {}
+        for cid in candidate_ids:
+            illusts = self.repository.fetch_illusts_for_artist(artist_user_id=int(cid))
+            max_bm = max((int(i.total_bookmarks or 0) for i in illusts), default=0)
+            # Evidence first so multi-source unhydrated candidates still get hydrated.
+            scores[int(cid)] = float(weight_sum.get(int(cid), 0.0)) * 1000.0 + float(max_bm)
+        return scores
 
     def _hydrate_artist_ids(
         self,

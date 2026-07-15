@@ -128,6 +128,16 @@ class ApiRouter:
                         'max_genre_fraction',
                         default=self.runtime.settings.recommendation.max_genre_fraction,
                     ),
+                    max_ai_fraction=self._query_float(
+                        request,
+                        'max_ai_fraction',
+                        default=self.runtime.settings.recommendation.max_ai_fraction,
+                    ),
+                    min_relative_bookmark_ratio=self._query_float(
+                        request,
+                        'min_relative_bookmark_ratio',
+                        default=self.runtime.settings.recommendation.min_relative_bookmark_ratio,
+                    ),
                 ),
             )
         return ApiResponse(status_code=404, payload={'error': 'not_found', 'path': path})

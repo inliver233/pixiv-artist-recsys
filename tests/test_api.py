@@ -44,12 +44,12 @@ class FakeLiveClient:
 
     def fetch_illust_detail(self, *, illust_id: int):
         payloads = {
-            10011: self._detail(10011, 1001, ['Blue Hair', '制服'], 40, 400, 5),
-            10012: self._detail(10012, 1001, ['Blue Hair'], 35, 350, 4),
-            10021: self._detail(10021, 1002, ['blue hair', '夜景'], 30, 300, 3),
-            10022: self._detail(10022, 1002, ['blue hair'], 28, 280, 2),
-            20011: self._detail(20011, 2001, ['blue hair', '制服'], 150, 1500, 12),
-            20012: self._detail(20012, 2001, ['blue hair', '制服'], 140, 1400, 11),
+            10011: self._detail(10011, 1001, ['Blue Hair', '制服'], 520, 5200, 25),
+            10012: self._detail(10012, 1001, ['Blue Hair'], 480, 4800, 22),
+            10021: self._detail(10021, 1002, ['blue hair', '夜景'], 500, 5000, 20),
+            10022: self._detail(10022, 1002, ['blue hair'], 460, 4600, 18),
+            20011: self._detail(20011, 2001, ['blue hair', '制服'], 650, 6500, 30),
+            20012: self._detail(20012, 2001, ['blue hair', '制服'], 600, 6000, 28),
         }
         return payloads[illust_id]
 

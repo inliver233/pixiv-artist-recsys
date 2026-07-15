@@ -95,15 +95,35 @@ class UserTasteProfileService:
         cleaned = _USERS_IRI_EMBEDDED_RE.sub('', normalized).strip('_')
         return cleaned
 
-    def build_profile(self, *, seed_user_id: int, top_n_tags: int = 40, top_n_pairs: int = 30) -> TasteProfileSummary:
+    def build_profile(
+        self,
+        *,
+        seed_user_id: int,
+        top_n_tags: int = 40,
+        top_n_pairs: int = 30,
+        min_artist_bookmarks: int = 0,
+    ) -> TasteProfileSummary:
         followed = self.repository.fetch_followed_tags(seed_user_id=seed_user_id)
+        # Optional quality gate: only artists with local max bookmarks >= threshold
+        # contribute to taste (avoids sparse/low-tier follows diluting the profile).
+        quality_ids: set[int] | None = None
+        if min_artist_bookmarks and min_artist_bookmarks > 0:
+            quality_ids = set()
+            for artist_id, _ in followed:
+                illusts = self.repository.fetch_illusts_for_artist(artist_user_id=artist_id)
+                if not illusts:
+                    continue
+                if max(int(i.total_bookmarks or 0) for i in illusts) >= int(min_artist_bookmarks):
+                    quality_ids.add(int(artist_id))
         # Artist-level TF: each followed artist contributes each tag at most once (avoids one
         # prolific artist flooding the profile with 女の子-style mass tags).
         artist_tag_sets: list[set[str]] = []
         pair_counter: Counter[tuple[str, str]] = Counter()
         df: Counter[str] = Counter()
 
-        for _, tags in followed:
+        for artist_id, tags in followed:
+            if quality_ids is not None and int(artist_id) not in quality_ids:
+                continue
             normalized_tags = sorted(
                 {
                     n

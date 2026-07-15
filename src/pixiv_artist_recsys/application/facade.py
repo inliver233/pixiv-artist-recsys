@@ -351,10 +351,13 @@ class ApplicationFacade:
         max_seed_following_artists: int = 12,
         max_following_per_seed_artist: int = 18,
         seed_following_sample: str = 'random',
+        merge_candidates: bool | None = None,
         on_progress: ProgressCallback | None = None,
     ) -> dict[str, Any]:
         from ..candidate import RelatedArtistCandidateService
 
+        settings = self.runtime.settings.recommendation
+        resolved_merge = settings.merge_candidates if merge_candidates is None else bool(merge_candidates)
         pixiv_client = self._build_pixiv_client(
             seed_user_id=seed_user_id,
             token_key=token_key,
@@ -379,6 +382,7 @@ class ApplicationFacade:
             max_seed_following_artists=max_seed_following_artists,
             max_following_per_seed_artist=max_following_per_seed_artist,
             seed_following_sample=seed_following_sample,
+            merge_candidates=resolved_merge,
             on_progress=on_progress,
         )
         return {
@@ -393,6 +397,7 @@ class ApplicationFacade:
             'max_seed_following_artists': max_seed_following_artists,
             'max_following_per_seed_artist': max_following_per_seed_artist,
             'seed_following_sample': seed_following_sample,
+            'merge_candidates': resolved_merge,
         }
 
     def build_profile_payload(
@@ -402,7 +407,10 @@ class ApplicationFacade:
         top_n_tags: int = 20,
         top_n_pairs: int = 20,
         stop_words: list[str] | set[str] | None = None,
+        profile_min_bookmarks: int | None = None,
     ) -> dict[str, Any]:
+        settings = self.runtime.settings.recommendation
+        resolved_profile_min = settings.profile_min_bookmarks if profile_min_bookmarks is None else profile_min_bookmarks
         summary = UserTasteProfileService(
             repository=self.runtime.repository,
             stop_words=set(stop_words or []),
@@ -410,10 +418,12 @@ class ApplicationFacade:
             seed_user_id=seed_user_id,
             top_n_tags=top_n_tags,
             top_n_pairs=top_n_pairs,
+            min_artist_bookmarks=resolved_profile_min,
         )
         return {
             'seed_user_id': summary.seed_user_id,
             'artist_count': summary.artist_count,
+            'profile_min_bookmarks': resolved_profile_min,
             'top_tags': [{'tag': tag, 'weight': weight} for tag, weight in summary.top_tags],
             'top_pairs': [{'tag_a': pair.tag_a, 'tag_b': pair.tag_b, 'weight': pair.weight} for pair in summary.top_pairs],
         }
@@ -431,14 +441,24 @@ class ApplicationFacade:
         min_local_illusts: int | None = None,
         require_tag_overlap: bool | None = None,
         max_genre_fraction: float | None = None,
+        max_ai_fraction: float | None = None,
+        min_relative_bookmark_ratio: float | None = None,
     ) -> dict[str, Any]:
         settings = self.runtime.settings.recommendation
         resolved_min_local = settings.min_local_illusts if min_local_illusts is None else min_local_illusts
         resolved_require_overlap = settings.require_tag_overlap if require_tag_overlap is None else require_tag_overlap
         resolved_genre_frac = settings.max_genre_fraction if max_genre_fraction is None else max_genre_fraction
+        resolved_ai_frac = settings.max_ai_fraction if max_ai_fraction is None else max_ai_fraction
+        resolved_relative = (
+            settings.min_relative_bookmark_ratio
+            if min_relative_bookmark_ratio is None
+            else min_relative_bookmark_ratio
+        )
         result = HeuristicArtistRankService(
             repository=self.runtime.repository,
             max_genre_fraction=resolved_genre_frac,
+            max_ai_fraction=resolved_ai_frac,
+            min_relative_bookmark_ratio=resolved_relative,
         ).rank_from_store(
             seed_user_id=seed_user_id,
             max_results=max_results,
@@ -450,6 +470,8 @@ class ApplicationFacade:
             min_local_illusts=resolved_min_local,
             require_tag_overlap=resolved_require_overlap,
             max_genre_fraction=resolved_genre_frac,
+            max_ai_fraction=resolved_ai_frac,
+            min_relative_bookmark_ratio=resolved_relative,
         )
         return {
             'seed_user_id': result.seed_user_id,
@@ -459,6 +481,8 @@ class ApplicationFacade:
                 'min_local_illusts': resolved_min_local,
                 'require_tag_overlap': resolved_require_overlap,
                 'max_genre_fraction': resolved_genre_frac,
+                'max_ai_fraction': resolved_ai_frac,
+                'min_relative_bookmark_ratio': resolved_relative,
             },
             'items': self._ranked_items_payload(result.items),
         }
@@ -473,24 +497,26 @@ class ApplicationFacade:
         following_refresh_token: str | None = None,
         following_token_key: str | None = None,
         restrict: str = 'public',
-        followed_artist_limit: int = 10,
-        candidate_artist_limit: int = 6,
-        max_related_per_artist: int = 6,
-        max_related_per_illust: int = 6,
-        max_seed_artists: int = 90,
-        max_candidate_artists: int = 130,
-        seed_sample: str = 'random',
+        followed_artist_limit: int = 16,
+        candidate_artist_limit: int = 10,
+        max_related_per_artist: int = 16,
+        max_related_per_illust: int = 16,
+        max_seed_artists: int = 600,
+        max_candidate_artists: int = 2000,
+        seed_sample: str = 'quality_first',
         enable_user_recommended: bool = True,
-        max_user_recommended: int = 30,
+        max_user_recommended: int = 100,
         enable_tag_search: bool = True,
-        max_tag_search_tags: int = 5,
-        max_tag_search_illusts: int = 20,
+        max_tag_search_tags: int = 16,
+        max_tag_search_illusts: int = 50,
         enable_seed_following: bool = True,
-        max_seed_following_artists: int = 12,
-        max_following_per_seed_artist: int = 18,
-        seed_following_sample: str = 'random',
+        max_seed_following_artists: int = 80,
+        max_following_per_seed_artist: int = 50,
+        seed_following_sample: str = 'quality_first',
+        merge_candidates: bool | None = None,
         top_n_tags: int = 40,
         top_n_pairs: int = 30,
+        profile_min_bookmarks: int | None = None,
         max_results: int | None = None,
         allow_ai: bool | None = None,
         allow_r18: bool | None = None,
@@ -500,6 +526,10 @@ class ApplicationFacade:
         min_local_illusts: int | None = None,
         require_tag_overlap: bool | None = None,
         max_genre_fraction: float | None = None,
+        max_ai_fraction: float | None = None,
+        min_relative_bookmark_ratio: float | None = None,
+        sample_salt: int | str | None = None,
+        explore_ratio: float | None = None,
         stop_words: list[str] | set[str] | None = None,
         on_progress: ProgressCallback | None = None,
     ) -> dict[str, Any]:
@@ -525,6 +555,14 @@ class ApplicationFacade:
         resolved_min_local = settings.min_local_illusts if min_local_illusts is None else min_local_illusts
         resolved_require_overlap = settings.require_tag_overlap if require_tag_overlap is None else require_tag_overlap
         resolved_genre_frac = settings.max_genre_fraction if max_genre_fraction is None else max_genre_fraction
+        resolved_ai_frac = settings.max_ai_fraction if max_ai_fraction is None else max_ai_fraction
+        resolved_relative = (
+            settings.min_relative_bookmark_ratio
+            if min_relative_bookmark_ratio is None
+            else min_relative_bookmark_ratio
+        )
+        resolved_profile_min = settings.profile_min_bookmarks if profile_min_bookmarks is None else profile_min_bookmarks
+        resolved_merge = settings.merge_candidates if merge_candidates is None else bool(merge_candidates)
         result = LiveRecommendationPipeline(
             repository=self.runtime.repository,
             pixiv_client=pixiv_client,
@@ -552,8 +590,10 @@ class ApplicationFacade:
                 max_seed_following_artists=max_seed_following_artists,
                 max_following_per_seed_artist=max_following_per_seed_artist,
                 seed_following_sample=seed_following_sample,
+                merge_candidates=resolved_merge,
                 top_n_tags=top_n_tags,
                 top_n_pairs=top_n_pairs,
+                profile_min_bookmarks=resolved_profile_min,
                 max_results=settings.max_results if max_results is None else max_results,
                 allow_ai=settings.allow_ai if allow_ai is None else allow_ai,
                 allow_r18=settings.allow_r18 if allow_r18 is None else allow_r18,
@@ -563,6 +603,10 @@ class ApplicationFacade:
                 min_local_illusts=resolved_min_local,
                 require_tag_overlap=resolved_require_overlap,
                 max_genre_fraction=resolved_genre_frac,
+                max_ai_fraction=resolved_ai_frac,
+                min_relative_bookmark_ratio=resolved_relative,
+                sample_salt=sample_salt,
+                explore_ratio=0.25 if explore_ratio is None else float(explore_ratio),
             ),
             on_progress=on_progress,
         )
@@ -585,6 +629,10 @@ class ApplicationFacade:
                 'min_local_illusts': resolved_min_local,
                 'require_tag_overlap': resolved_require_overlap,
                 'max_genre_fraction': resolved_genre_frac,
+                'max_ai_fraction': resolved_ai_frac,
+                'min_relative_bookmark_ratio': resolved_relative,
+                'profile_min_bookmarks': resolved_profile_min,
+                'merge_candidates': resolved_merge,
             },
             'token_roles': {
                 'following_uses_mother': bool(resolved_following_refresh),

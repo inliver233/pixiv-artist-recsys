@@ -40,6 +40,21 @@ DEFAULT_BLOCKED_TAGS: frozenset[str] = frozenset(
         'yaoi',
         'boys_love',
         'ボーイズラブ',
+        # AI generation markers (artist-level filter also uses ai_type)
+        'ai',
+        'ai生成',
+        'ai-generated',
+        'aigenerated',
+        'novelai',
+        'nai',
+        'stable_diffusion',
+        'stablediffusion',
+        'sdxl',
+        'midjourney',
+        'aiイラスト',
+        'ai绘画',
+        'ai繪圖',
+        '生成ai',
     }
 )
 
@@ -62,6 +77,17 @@ DEFAULT_BLOCKED_SUBSTRINGS: tuple[str, ...] = (
     'boys_love',
     'やおい',
     'yaoi',
+    'ai生成',
+    'ai-generated',
+    'aigenerated',
+    'novelai',
+    'stable_diffusion',
+    'stablediffusion',
+    'midjourney',
+    'aiイラスト',
+    'ai绘画',
+    'ai繪圖',
+    '生成ai',
 )
 
 # Soft genre families for purity scoring (fraction of local illusts that hit family).
@@ -99,6 +125,8 @@ class HeuristicArtistRankService:
         blocked_substrings: tuple[str, ...] | list[str] | None = None,
         max_genre_fraction: float = 0.34,
         max_manga_type_fraction: float = 0.5,
+        max_ai_fraction: float = 0.15,
+        min_relative_bookmark_ratio: float = 0.35,
     ) -> None:
         self.repository = repository
         raw = blocked_tags if blocked_tags is not None else DEFAULT_BLOCKED_TAGS
@@ -107,6 +135,8 @@ class HeuristicArtistRankService:
         self.blocked_substrings = tuple(self._normalize(s) for s in subs if self._normalize(s))
         self.max_genre_fraction = float(max_genre_fraction)
         self.max_manga_type_fraction = float(max_manga_type_fraction)
+        self.max_ai_fraction = float(max_ai_fraction)
+        self.min_relative_bookmark_ratio = float(min_relative_bookmark_ratio)
 
     def rank_from_store(
         self,
@@ -123,6 +153,8 @@ class HeuristicArtistRankService:
         require_tag_overlap: bool = True,
         blocked_tags: set[str] | frozenset[str] | None = None,
         max_genre_fraction: float | None = None,
+        max_ai_fraction: float | None = None,
+        min_relative_bookmark_ratio: float | None = None,
     ) -> RankedRecommendationResult:
         seed_user = self.repository.fetch_seed_user(user_id=seed_user_id)
         resolved_allow_ai = seed_user.allow_ai if allow_ai is None and seed_user is not None else bool(allow_ai)
@@ -133,9 +165,21 @@ class HeuristicArtistRankService:
             else self.blocked_tags
         )
         genre_frac_limit = self.max_genre_fraction if max_genre_fraction is None else float(max_genre_fraction)
+        ai_frac_limit = self.max_ai_fraction if max_ai_fraction is None else float(max_ai_fraction)
+        relative_ratio = (
+            self.min_relative_bookmark_ratio
+            if min_relative_bookmark_ratio is None
+            else float(min_relative_bookmark_ratio)
+        )
 
         followed_ids = set(self.repository.list_following_artist_ids(seed_user_id=seed_user_id))
         rejected_ids = set(self.repository.list_feedback_artist_ids(seed_user_id=seed_user_id, actions=('dislike', 'block')))
+        followed_quality_median = self._followed_max_bookmark_median(followed_ids)
+        relative_min_bookmarks = 0
+        if relative_ratio > 0 and followed_quality_median > 0:
+            relative_min_bookmarks = int(math.floor(followed_quality_median * relative_ratio))
+        effective_min_bookmarks = max(int(min_total_bookmarks or 0), relative_min_bookmarks)
+
         profile = dict(self.repository.fetch_user_taste_profile(seed_user_id=seed_user_id))
         pair_weights = {
             (self._normalize(a), self._normalize(b)): float(w)
@@ -158,6 +202,12 @@ class HeuristicArtistRankService:
             if artist is None:
                 continue
             illusts = self.repository.fetch_illusts_for_artist(artist_user_id=candidate_user_id)
+            # Artist-level AI fraction (before per-illust AI strip) — mixed AI portfolios drop.
+            if not resolved_allow_ai and illusts and ai_frac_limit >= 0:
+                ai_count = sum(1 for illust in illusts if int(getattr(illust, 'ai_type', 0) or 0) != 0)
+                ai_frac = ai_count / len(illusts)
+                if ai_frac > ai_frac_limit:
+                    continue
             filtered_illusts = [
                 illust
                 for illust in illusts
@@ -167,9 +217,9 @@ class HeuristicArtistRankService:
                 continue
             if min_local_illusts > 0 and len(filtered_illusts) < min_local_illusts:
                 continue
-            if filtered_illusts and max(illust.total_bookmarks for illust in filtered_illusts) < min_total_bookmarks:
+            if filtered_illusts and max(illust.total_bookmarks for illust in filtered_illusts) < effective_min_bookmarks:
                 continue
-            if not filtered_illusts and min_total_bookmarks > 0:
+            if not filtered_illusts and effective_min_bookmarks > 0:
                 continue
 
             illust_ids = [illust.illust_id for illust in filtered_illusts]
@@ -236,13 +286,17 @@ class HeuristicArtistRankService:
             if final_score < min_score:
                 continue
 
+            distinct_sources = len({source_type for source_type, _, _, _ in evidences})
+            distinct_keys = len({(source_type, source_key) for source_type, source_key, _, _ in evidences})
             confidence = min(
                 1.0,
-                0.20
-                + 0.12 * min(4, len(evidences))
-                + 0.10 * min(4, len(filtered_illusts))
+                0.18
+                + 0.10 * min(6, distinct_keys)
+                + 0.08 * min(4, distinct_sources)
+                + 0.10 * min(6, len(filtered_illusts))
                 + 0.15 * taste_score
-                + 0.10 * purity_score,
+                + 0.10 * purity_score
+                + 0.08 * evidence_score,
             )
             ordered = sorted(filtered_illusts, key=lambda i: (-i.total_bookmarks, -i.illust_id))
             top_illust_ids = [illust.illust_id for illust in ordered[:3]]
@@ -261,8 +315,13 @@ class HeuristicArtistRankService:
                 reasons.append(f'negative_penalty:{round(negative_tag_score, 3)}')
             if min_local_illusts > 0:
                 reasons.append(f'quality:min_local_illusts>={min_local_illusts}')
-            if min_total_bookmarks > 0:
-                reasons.append(f'quality:min_bookmarks>={min_total_bookmarks}')
+            if effective_min_bookmarks > 0:
+                reasons.append(f'quality:min_bookmarks>={effective_min_bookmarks}')
+            if relative_min_bookmarks > 0:
+                reasons.append(
+                    f'quality:relative_min={relative_min_bookmarks}'
+                    f'(followed_median_max_bm={int(followed_quality_median)},ratio={relative_ratio})'
+                )
             if quality_meta.get('median_bookmarks') is not None:
                 reasons.append(f"quality:median_bookmarks={quality_meta['median_bookmarks']}")
             if quality_meta.get('consistency') is not None:
@@ -347,17 +406,27 @@ class HeuristicArtistRankService:
     def _evidence_score(evidences: list[tuple[str, str, float, str]]) -> float:
         if not evidences:
             return 0.0
-        # Dedup by source_type: take best weight per type, apply reliability.
-        best_by_type: dict[str, float] = {}
-        for source_type, _key, weight, _detail in evidences:
+        # Within each source_type keep max weight per distinct source_key, then
+        # saturating multi-key sum (many independent keys confirm more than one).
+        keys_by_type: dict[str, dict[str, float]] = defaultdict(dict)
+        for source_type, source_key, weight, _detail in evidences:
+            key = str(source_key or '')
+            weight_f = float(weight)
+            prev = keys_by_type[source_type].get(key)
+            if prev is None or weight_f > prev:
+                keys_by_type[source_type][key] = weight_f
+        type_values: list[float] = []
+        for source_type, key_weights in keys_by_type.items():
             rel = _SOURCE_RELIABILITY.get(source_type, 0.6)
-            value = float(weight) * rel
-            prev = best_by_type.get(source_type)
-            if prev is None or value > prev:
-                best_by_type[source_type] = value
-        # Saturating sum so multi-source confirmation helps but does not explode.
-        total = sum(best_by_type.values())
-        # Soft-cap: 2.0 raw → ~1.0 after tanh-ish map.
+            raw = sum(key_weights.values())
+            # Soft multi-key: first key full, further keys add diminishing returns.
+            multi = raw / (raw + 0.75) if raw > 0 else 0.0
+            n_keys = len(key_weights)
+            if n_keys > 1:
+                multi = min(1.0, multi * (1.0 + 0.06 * min(6, n_keys - 1)))
+            type_values.append(multi * rel)
+        # Cross-type saturating sum so multi-channel confirmation helps but does not explode.
+        total = sum(type_values)
         return max(0.0, min(1.0, total / (total + 1.2)))
 
     def _genre_fractions(self, per_illust_tags: list[set[str]]) -> dict[str, float]:
@@ -436,6 +505,31 @@ class HeuristicArtistRankService:
         if len(ordered) % 2 == 1:
             return float(ordered[mid])
         return (ordered[mid - 1] + ordered[mid]) / 2.0
+
+    def _followed_max_bookmark_median(self, followed_ids: set[int]) -> float:
+        """Median of per-followed-artist max bookmarks (local hydrate only).
+
+        Used as a relative quality anchor so mid-tier candidates cannot outrank
+        the user's actual followed tier via absolute min_bookmarks alone.
+
+        Uses the *lower* half of followed maxima (25th–50th band via median of
+        the bottom 60% after sort) so quality_first hydrate of only top seeds
+        does not push the bar into the stratosphere and erase mid-high discoveries.
+        """
+        maxima: list[int] = []
+        for artist_id in followed_ids:
+            illusts = self.repository.fetch_illusts_for_artist(artist_user_id=artist_id)
+            if not illusts:
+                continue
+            maxima.append(max(int(illust.total_bookmarks or 0) for illust in illusts))
+        if not maxima:
+            return 0.0
+        ordered = sorted(maxima)
+        # Drop extreme top 40% before median so mega-popular outliers do not dominate.
+        if len(ordered) >= 5:
+            keep = max(3, int(round(len(ordered) * 0.60)))
+            ordered = ordered[:keep]
+        return self._median(ordered)
 
     @staticmethod
     def _apply_diversity(

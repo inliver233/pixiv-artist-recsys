@@ -81,6 +81,27 @@ class PacingTests(unittest.TestCase):
         self.assertEqual(a, c)
         self.assertEqual(sample_ids(pool, limit=5, mode='first'), [1, 2, 3, 4, 5])
 
+    def test_quality_first_prefers_high_scores_with_explore_slice(self) -> None:
+        from pixiv_artist_recsys.utils.sampling import quality_first_ids
+
+        scored = [(i, float(i)) for i in range(1, 101)]
+        picked = quality_first_ids(scored, limit=20, seed_user_id=7, explore_ratio=0.25, rng=random.Random(0))
+        self.assertEqual(len(picked), 20)
+        # Exploit slice should include the highest scores first.
+        self.assertIn(100, picked)
+        self.assertIn(99, picked)
+        self.assertIn(98, picked)
+        via_sample = sample_ids(
+            list(range(1, 101)),
+            limit=20,
+            mode='quality_first',
+            seed_user_id=7,
+            quality_scores={i: float(i) for i in range(1, 101)},
+            rng=random.Random(0),
+        )
+        self.assertEqual(len(via_sample), 20)
+        self.assertIn(100, via_sample)
+
 
 if __name__ == '__main__':
     unittest.main()

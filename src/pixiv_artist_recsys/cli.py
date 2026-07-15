@@ -90,9 +90,9 @@ def _add_recommendation_args(parser: argparse.ArgumentParser, *, settings, inclu
     )
     parser.add_argument(
         '--seed-sample',
-        choices=('random', 'hash', 'first'),
+        choices=('quality_first', 'random', 'hash', 'first', 'hydrated_first'),
         default=rec.seed_sample,
-        help='How to pick seed artists each run: random (default, different each run)|hash|first',
+        help='How to pick seed artists: quality_first|random|hash|first|hydrated_first',
     )
     parser.add_argument('--enable-user-recommended', action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument('--max-user-recommended', type=int, default=rec.max_user_recommended)
@@ -119,12 +119,24 @@ def _add_recommendation_args(parser: argparse.ArgumentParser, *, settings, inclu
     )
     parser.add_argument(
         '--seed-following-sample',
-        choices=('random', 'hydrated_first', 'hash', 'first'),
+        choices=('quality_first', 'random', 'hydrated_first', 'hash', 'first'),
         default=rec.seed_following_sample,
-        help='How to pick which seed artists to expand: random|hydrated_first|hash|first',
+        help='How to pick which seed artists to expand: quality_first|random|hydrated_first|hash|first',
     )
-    parser.add_argument('--top-n-tags', type=int, default=20)
-    parser.add_argument('--top-n-pairs', type=int, default=20)
+    parser.add_argument(
+        '--merge-candidates',
+        action=argparse.BooleanOptionalAction,
+        default=rec.merge_candidates,
+        help='Accumulate candidate evidence across runs instead of full replace',
+    )
+    parser.add_argument('--top-n-tags', type=int, default=40)
+    parser.add_argument('--top-n-pairs', type=int, default=30)
+    parser.add_argument(
+        '--profile-min-bookmarks',
+        type=int,
+        default=rec.profile_min_bookmarks,
+        help='Only followed artists with local max bookmarks >= this contribute to taste profile',
+    )
     parser.add_argument('--max-results', type=int, default=settings.recommendation.max_results)
     parser.add_argument('--allow-ai', action=argparse.BooleanOptionalAction, default=settings.recommendation.allow_ai)
     parser.add_argument('--allow-r18', action=argparse.BooleanOptionalAction, default=settings.recommendation.allow_r18)
@@ -138,6 +150,29 @@ def _add_recommendation_args(parser: argparse.ArgumentParser, *, settings, inclu
         default=settings.recommendation.require_tag_overlap,
     )
     parser.add_argument('--max-genre-fraction', type=float, default=settings.recommendation.max_genre_fraction)
+    parser.add_argument(
+        '--max-ai-fraction',
+        type=float,
+        default=settings.recommendation.max_ai_fraction,
+        help='Drop artists when local ai_type!=0 fraction exceeds this (allow-ai still hard-filters works)',
+    )
+    parser.add_argument(
+        '--min-relative-bookmark-ratio',
+        type=float,
+        default=settings.recommendation.min_relative_bookmark_ratio,
+        help='Candidate max bookmarks must reach ratio * followed median max bookmarks (0 disables)',
+    )
+    parser.add_argument(
+        '--sample-salt',
+        default=None,
+        help='Rotate seed/candidate sampling for multi-round campaigns (int or string)',
+    )
+    parser.add_argument(
+        '--explore-ratio',
+        type=float,
+        default=0.25,
+        help='Quality-first explore slice ratio (0–0.5) for seed sampling diversity',
+    )
     parser.add_argument('--stop-word', action='append', default=[])
     if include_output:
         parser.add_argument('--output')
@@ -225,9 +260,9 @@ def build_parser() -> argparse.ArgumentParser:
     hydrate.add_argument('--max-artists', type=int, default=rec.max_seed_artists)
     hydrate.add_argument(
         '--seed-sample',
-        choices=('random', 'hash', 'first'),
+        choices=('quality_first', 'random', 'hash', 'first', 'hydrated_first'),
         default=rec.seed_sample,
-        help='How to pick which followed artists to hydrate: random|hash|first',
+        help='How to pick which followed artists to hydrate: quality_first|random|hash|first|hydrated_first',
     )
     hydrate.add_argument('--sync-following', action=argparse.BooleanOptionalAction, default=True)
     hydrate.add_argument('--restrict', default='public')
@@ -241,15 +276,16 @@ def build_parser() -> argparse.ArgumentParser:
     hydrate_candidates.add_argument('--max-artists', type=int, default=rec.max_candidate_artists)
     hydrate_candidates.add_argument(
         '--seed-sample',
-        choices=('random', 'hash', 'first'),
+        choices=('quality_first', 'random', 'hash', 'first', 'hydrated_first'),
         default=rec.seed_sample,
-        help='How to pick which candidates to hydrate: random|hash|first',
+        help='How to pick which candidates to hydrate: quality_first|random|hash|first|hydrated_first',
     )
 
     profile = sub.add_parser('build-profile', help='Build local taste profile from hydrated followed artists')
     profile.add_argument('--seed-user-id', type=int, required=True)
-    profile.add_argument('--top-n-tags', type=int, default=20)
-    profile.add_argument('--top-n-pairs', type=int, default=20)
+    profile.add_argument('--top-n-tags', type=int, default=40)
+    profile.add_argument('--top-n-pairs', type=int, default=30)
+    profile.add_argument('--profile-min-bookmarks', type=int, default=rec.profile_min_bookmarks)
     profile.add_argument('--stop-word', action='append', default=[])
 
     build_candidates = sub.add_parser('build-candidates', help='Build multi-source artist candidates into local sqlite')
@@ -259,7 +295,7 @@ def build_parser() -> argparse.ArgumentParser:
     build_candidates.add_argument('--max-seed-artists', type=int, default=rec.max_seed_artists)
     build_candidates.add_argument(
         '--seed-sample',
-        choices=('random', 'hash', 'first'),
+        choices=('quality_first', 'random', 'hash', 'first', 'hydrated_first'),
         default=rec.seed_sample,
     )
     build_candidates.add_argument('--enable-user-recommended', action=argparse.BooleanOptionalAction, default=True)
@@ -280,8 +316,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     build_candidates.add_argument(
         '--seed-following-sample',
-        choices=('random', 'hydrated_first', 'hash', 'first'),
+        choices=('quality_first', 'random', 'hydrated_first', 'hash', 'first'),
         default=rec.seed_following_sample,
+    )
+    build_candidates.add_argument(
+        '--merge-candidates',
+        action=argparse.BooleanOptionalAction,
+        default=rec.merge_candidates,
     )
 
     recommend = sub.add_parser('recommend-from-store', help='Rank locally stored candidate artists')
@@ -299,6 +340,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=settings.recommendation.require_tag_overlap,
     )
     recommend.add_argument('--max-genre-fraction', type=float, default=settings.recommendation.max_genre_fraction)
+    recommend.add_argument('--max-ai-fraction', type=float, default=settings.recommendation.max_ai_fraction)
+    recommend.add_argument(
+        '--min-relative-bookmark-ratio',
+        type=float,
+        default=settings.recommendation.min_relative_bookmark_ratio,
+    )
 
     full = sub.add_parser('full-recommend', help='Run the full live Pixiv recommendation pipeline')
     _add_recommendation_args(full, settings=settings)
@@ -520,13 +567,21 @@ def cmd_hydrate_candidate_illusts(
     return 0
 
 
-def cmd_build_profile(*, seed_user_id: int, top_n_tags: int, top_n_pairs: int, stop_words: list[str]) -> int:
+def cmd_build_profile(
+    *,
+    seed_user_id: int,
+    top_n_tags: int,
+    top_n_pairs: int,
+    stop_words: list[str],
+    profile_min_bookmarks: int | None = None,
+) -> int:
     _print_payload(
         _build_facade().build_profile_payload(
             seed_user_id=seed_user_id,
             top_n_tags=top_n_tags,
             top_n_pairs=top_n_pairs,
             stop_words=stop_words,
+            profile_min_bookmarks=profile_min_bookmarks,
         )
     )
     return 0
@@ -551,6 +606,7 @@ def cmd_build_candidates(
     max_seed_following_artists: int,
     max_following_per_seed_artist: int,
     seed_following_sample: str,
+    merge_candidates: bool | None = None,
 ) -> int:
     _print_payload(
         _build_facade().build_candidates_payload(
@@ -571,6 +627,7 @@ def cmd_build_candidates(
             max_seed_following_artists=max_seed_following_artists,
             max_following_per_seed_artist=max_following_per_seed_artist,
             seed_following_sample=seed_following_sample,
+            merge_candidates=merge_candidates,
         )
     )
     return 0
@@ -588,6 +645,8 @@ def cmd_recommend_from_store(
     min_local_illusts: int,
     require_tag_overlap: bool,
     max_genre_fraction: float,
+    max_ai_fraction: float | None = None,
+    min_relative_bookmark_ratio: float | None = None,
 ) -> int:
     _print_payload(
         _build_facade().recommend_from_store_payload(
@@ -601,6 +660,8 @@ def cmd_recommend_from_store(
             min_local_illusts=min_local_illusts,
             require_tag_overlap=require_tag_overlap,
             max_genre_fraction=max_genre_fraction,
+            max_ai_fraction=max_ai_fraction,
+            min_relative_bookmark_ratio=min_relative_bookmark_ratio,
         )
     )
     return 0
@@ -631,8 +692,10 @@ def cmd_full_recommend(
     max_seed_following_artists: int,
     max_following_per_seed_artist: int,
     seed_following_sample: str,
+    merge_candidates: bool | None = None,
     top_n_tags: int,
     top_n_pairs: int,
+    profile_min_bookmarks: int | None = None,
     max_results: int,
     allow_ai: bool,
     allow_r18: bool,
@@ -642,6 +705,10 @@ def cmd_full_recommend(
     min_local_illusts: int,
     require_tag_overlap: bool,
     max_genre_fraction: float,
+    max_ai_fraction: float | None = None,
+    min_relative_bookmark_ratio: float | None = None,
+    sample_salt: int | str | None = None,
+    explore_ratio: float | None = None,
     stop_words: list[str],
 ) -> int:
     _print_payload(
@@ -669,8 +736,10 @@ def cmd_full_recommend(
             max_seed_following_artists=max_seed_following_artists,
             max_following_per_seed_artist=max_following_per_seed_artist,
             seed_following_sample=seed_following_sample,
+            merge_candidates=merge_candidates,
             top_n_tags=top_n_tags,
             top_n_pairs=top_n_pairs,
+            profile_min_bookmarks=profile_min_bookmarks,
             max_results=max_results,
             allow_ai=allow_ai,
             allow_r18=allow_r18,
@@ -680,6 +749,10 @@ def cmd_full_recommend(
             min_local_illusts=min_local_illusts,
             require_tag_overlap=require_tag_overlap,
             max_genre_fraction=max_genre_fraction,
+            max_ai_fraction=max_ai_fraction,
+            min_relative_bookmark_ratio=min_relative_bookmark_ratio,
+            sample_salt=sample_salt,
+            explore_ratio=explore_ratio,
             stop_words=stop_words,
         )
     )
@@ -711,8 +784,10 @@ def cmd_run_seed_job(
     max_seed_following_artists: int,
     max_following_per_seed_artist: int,
     seed_following_sample: str,
+    merge_candidates: bool | None = None,
     top_n_tags: int,
     top_n_pairs: int,
+    profile_min_bookmarks: int | None = None,
     max_results: int,
     allow_ai: bool,
     allow_r18: bool,
@@ -722,6 +797,10 @@ def cmd_run_seed_job(
     min_local_illusts: int,
     require_tag_overlap: bool,
     max_genre_fraction: float,
+    max_ai_fraction: float | None = None,
+    min_relative_bookmark_ratio: float | None = None,
+    sample_salt: int | str | None = None,
+    explore_ratio: float | None = None,
     stop_words: list[str],
     output: str | None,
 ) -> int:
@@ -750,8 +829,10 @@ def cmd_run_seed_job(
             max_seed_following_artists=max_seed_following_artists,
             max_following_per_seed_artist=max_following_per_seed_artist,
             seed_following_sample=seed_following_sample,
+            merge_candidates=merge_candidates,
             top_n_tags=top_n_tags,
             top_n_pairs=top_n_pairs,
+            profile_min_bookmarks=profile_min_bookmarks,
             max_results=max_results,
             allow_ai=allow_ai,
             allow_r18=allow_r18,
@@ -761,6 +842,10 @@ def cmd_run_seed_job(
             min_local_illusts=min_local_illusts,
             require_tag_overlap=require_tag_overlap,
             max_genre_fraction=max_genre_fraction,
+            max_ai_fraction=max_ai_fraction,
+            min_relative_bookmark_ratio=min_relative_bookmark_ratio,
+            sample_salt=sample_salt,
+            explore_ratio=explore_ratio,
             stop_words=tuple(stop_words),
         ),
         output_path=output,
@@ -1001,6 +1086,7 @@ def main(argv: list[str] | None = None) -> int:
                 top_n_tags=args.top_n_tags,
                 top_n_pairs=args.top_n_pairs,
                 stop_words=args.stop_word,
+                profile_min_bookmarks=getattr(args, 'profile_min_bookmarks', None),
             )
         if args.command == 'build-candidates':
             return cmd_build_candidates(
@@ -1021,6 +1107,7 @@ def main(argv: list[str] | None = None) -> int:
                 max_seed_following_artists=args.max_seed_following_artists,
                 max_following_per_seed_artist=args.max_following_per_seed_artist,
                 seed_following_sample=args.seed_following_sample,
+                merge_candidates=getattr(args, 'merge_candidates', None),
             )
         if args.command == 'recommend-from-store':
             return cmd_recommend_from_store(
@@ -1034,6 +1121,8 @@ def main(argv: list[str] | None = None) -> int:
                 min_local_illusts=args.min_local_illusts,
                 require_tag_overlap=args.require_tag_overlap,
                 max_genre_fraction=args.max_genre_fraction,
+                max_ai_fraction=getattr(args, 'max_ai_fraction', None),
+                min_relative_bookmark_ratio=getattr(args, 'min_relative_bookmark_ratio', None),
             )
         if args.command == 'full-recommend':
             return cmd_full_recommend(
@@ -1060,8 +1149,10 @@ def main(argv: list[str] | None = None) -> int:
                 max_seed_following_artists=args.max_seed_following_artists,
                 max_following_per_seed_artist=args.max_following_per_seed_artist,
                 seed_following_sample=args.seed_following_sample,
+                merge_candidates=getattr(args, 'merge_candidates', None),
                 top_n_tags=args.top_n_tags,
                 top_n_pairs=args.top_n_pairs,
+                profile_min_bookmarks=getattr(args, 'profile_min_bookmarks', None),
                 max_results=args.max_results,
                 allow_ai=args.allow_ai,
                 allow_r18=args.allow_r18,
@@ -1071,6 +1162,10 @@ def main(argv: list[str] | None = None) -> int:
                 min_local_illusts=args.min_local_illusts,
                 require_tag_overlap=args.require_tag_overlap,
                 max_genre_fraction=args.max_genre_fraction,
+                max_ai_fraction=getattr(args, 'max_ai_fraction', None),
+                min_relative_bookmark_ratio=getattr(args, 'min_relative_bookmark_ratio', None),
+                sample_salt=getattr(args, 'sample_salt', None),
+                explore_ratio=getattr(args, 'explore_ratio', None),
                 stop_words=args.stop_word,
             )
         if args.command == 'run-seed-job':
@@ -1098,8 +1193,10 @@ def main(argv: list[str] | None = None) -> int:
                 max_seed_following_artists=args.max_seed_following_artists,
                 max_following_per_seed_artist=args.max_following_per_seed_artist,
                 seed_following_sample=args.seed_following_sample,
+                merge_candidates=getattr(args, 'merge_candidates', None),
                 top_n_tags=args.top_n_tags,
                 top_n_pairs=args.top_n_pairs,
+                profile_min_bookmarks=getattr(args, 'profile_min_bookmarks', None),
                 max_results=args.max_results,
                 allow_ai=args.allow_ai,
                 allow_r18=args.allow_r18,
@@ -1109,6 +1206,10 @@ def main(argv: list[str] | None = None) -> int:
                 min_local_illusts=args.min_local_illusts,
                 require_tag_overlap=args.require_tag_overlap,
                 max_genre_fraction=args.max_genre_fraction,
+                max_ai_fraction=getattr(args, 'max_ai_fraction', None),
+                min_relative_bookmark_ratio=getattr(args, 'min_relative_bookmark_ratio', None),
+                sample_salt=getattr(args, 'sample_salt', None),
+                explore_ratio=getattr(args, 'explore_ratio', None),
                 stop_words=args.stop_word,
                 output=args.output,
             )

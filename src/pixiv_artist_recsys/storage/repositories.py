@@ -436,9 +436,16 @@ class RecommendationRepository:
             result.append((artist_id, self.fetch_artist_tags(artist_user_id=artist_id)))
         return result
 
-    def replace_artist_candidates(self, *, seed_user_id: int, candidates: list[tuple[int, str, str, float, str]]) -> None:
+    def replace_artist_candidates(
+        self,
+        *,
+        seed_user_id: int,
+        candidates: list[tuple[int, str, str, float, str]],
+        merge: bool = False,
+    ) -> None:
         # Same (candidate, source_type, source_key) can appear many times from list APIs
         # (e.g. tag_search returning several illusts by one artist). Collapse before insert.
+        # merge=True accumulates across runs (UPSERT only); False clears seed then insert.
         merged: dict[tuple[int, str, str], tuple[float, str]] = {}
         for candidate_user_id, source_type, source_key, weight, detail in candidates:
             key = (int(candidate_user_id), str(source_type), str(source_key))
@@ -451,17 +458,22 @@ class RecommendationRepository:
             for (candidate_user_id, source_type, source_key), (weight, detail) in merged.items()
         ]
         with self.database.connect() as conn:
-            conn.execute("DELETE FROM artist_candidates WHERE seed_user_id = ?", (seed_user_id,))
-            conn.executemany(
-                """
-                INSERT INTO artist_candidates (seed_user_id, candidate_user_id, source_type, source_key, weight, detail)
-                VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT(seed_user_id, candidate_user_id, source_type, source_key) DO UPDATE SET
-                    weight=excluded.weight,
-                    detail=excluded.detail
-                """,
-                rows,
-            )
+            if not merge:
+                conn.execute("DELETE FROM artist_candidates WHERE seed_user_id = ?", (seed_user_id,))
+            if rows:
+                conn.executemany(
+                    """
+                    INSERT INTO artist_candidates (seed_user_id, candidate_user_id, source_type, source_key, weight, detail)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(seed_user_id, candidate_user_id, source_type, source_key) DO UPDATE SET
+                        weight=MAX(artist_candidates.weight, excluded.weight),
+                        detail=CASE
+                            WHEN excluded.weight >= artist_candidates.weight THEN excluded.detail
+                            ELSE artist_candidates.detail
+                        END
+                    """,
+                    rows,
+                )
 
     def fetch_artist_candidates(self, *, seed_user_id: int) -> list[tuple[int, str, str, float, str]]:
         with self.database.connect() as conn:

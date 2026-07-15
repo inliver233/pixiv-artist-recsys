@@ -19,33 +19,39 @@ class LiveRecommendationRequest:
     refresh_token_ref: str
     following_refresh_token_ref: str | None = None
     restrict: str = 'public'
-    followed_artist_limit: int = 10
-    candidate_artist_limit: int = 6
-    max_related_per_artist: int = 6
-    max_related_per_illust: int = 6
-    max_seed_artists: int = 90
-    max_candidate_artists: int = 130
-    seed_sample: str = 'random'
+    followed_artist_limit: int = 16
+    candidate_artist_limit: int = 10
+    max_related_per_artist: int = 16
+    max_related_per_illust: int = 16
+    max_seed_artists: int = 600
+    max_candidate_artists: int = 2000
+    seed_sample: str = 'quality_first'
     enable_user_recommended: bool = True
-    max_user_recommended: int = 30
+    max_user_recommended: int = 100
     enable_tag_search: bool = True
-    max_tag_search_tags: int = 5
-    max_tag_search_illusts: int = 20
+    max_tag_search_tags: int = 16
+    max_tag_search_illusts: int = 50
     enable_seed_following: bool = True
-    max_seed_following_artists: int = 12
-    max_following_per_seed_artist: int = 18
-    seed_following_sample: str = 'random'
+    max_seed_following_artists: int = 80
+    max_following_per_seed_artist: int = 50
+    seed_following_sample: str = 'quality_first'
+    merge_candidates: bool = True
     top_n_tags: int = 40
     top_n_pairs: int = 30
-    max_results: int = 60
+    profile_min_bookmarks: int = 200
+    max_results: int = 500
     allow_ai: bool = False
     allow_r18: bool = False
-    min_total_bookmarks: int = 30
-    min_score: float = 0.28
-    diversity_primary_tag_limit: int = 3
+    min_total_bookmarks: int = 80
+    min_score: float = 0.24
+    diversity_primary_tag_limit: int = 6
     min_local_illusts: int = 2
     require_tag_overlap: bool = True
     max_genre_fraction: float = 0.34
+    max_ai_fraction: float = 0.12
+    min_relative_bookmark_ratio: float = 0.35
+    sample_salt: int | str | None = None
+    explore_ratio: float = 0.25
     persist_run: bool = True
     mode: str = 'live-heuristic'
 
@@ -77,7 +83,12 @@ class LiveRecommendationPipeline:
         self.hydration_service = ArtistIllustHydrationService(repository=repository, pixiv_client=pixiv_client)
         self.profile_service = UserTasteProfileService(repository=repository, stop_words=stop_words)
         self.candidate_service = RelatedArtistCandidateService(repository=repository, pixiv_client=pixiv_client)
-        self.rank_service = HeuristicArtistRankService(repository=repository)
+        self.rank_service = HeuristicArtistRankService(
+            repository=repository,
+            max_genre_fraction=0.34,
+            max_ai_fraction=0.12,
+            min_relative_bookmark_ratio=0.35,
+        )
 
     def run(
         self,
@@ -113,6 +124,8 @@ class LiveRecommendationPipeline:
             per_artist_limit=request.followed_artist_limit,
             max_artists=request.max_seed_artists,
             seed_sample=request.seed_sample,
+            sample_salt=request.sample_salt,
+            explore_ratio=request.explore_ratio,
             on_progress=on_progress,
         )
 
@@ -121,12 +134,16 @@ class LiveRecommendationPipeline:
             on_progress,
             stage='profile',
             event='start',
-            message='building taste profile from followed illusts',
+            message=(
+                f'building taste profile from followed illusts '
+                f'(min_artist_bookmarks={request.profile_min_bookmarks})'
+            ),
         )
         profile_summary = self.profile_service.build_profile(
             seed_user_id=request.seed_user_id,
             top_n_tags=request.top_n_tags,
             top_n_pairs=request.top_n_pairs,
+            min_artist_bookmarks=request.profile_min_bookmarks,
         )
         emit(
             on_progress,
@@ -153,6 +170,9 @@ class LiveRecommendationPipeline:
             max_seed_following_artists=request.max_seed_following_artists,
             max_following_per_seed_artist=request.max_following_per_seed_artist,
             seed_following_sample=request.seed_following_sample,
+            merge_candidates=request.merge_candidates,
+            sample_salt=request.sample_salt,
+            explore_ratio=request.explore_ratio,
             on_progress=on_progress,
         )
 
@@ -162,6 +182,8 @@ class LiveRecommendationPipeline:
             per_artist_limit=request.candidate_artist_limit,
             max_artists=request.max_candidate_artists,
             seed_sample=request.seed_sample,
+            sample_salt=request.sample_salt,
+            explore_ratio=request.explore_ratio,
             on_progress=on_progress,
         )
 
@@ -178,6 +200,8 @@ class LiveRecommendationPipeline:
             min_local_illusts=request.min_local_illusts,
             require_tag_overlap=request.require_tag_overlap,
             max_genre_fraction=request.max_genre_fraction,
+            max_ai_fraction=request.max_ai_fraction,
+            min_relative_bookmark_ratio=request.min_relative_bookmark_ratio,
         )
         emit(
             on_progress,
@@ -211,6 +235,13 @@ class LiveRecommendationPipeline:
                         'min_local_illusts': request.min_local_illusts,
                         'require_tag_overlap': request.require_tag_overlap,
                         'max_genre_fraction': request.max_genre_fraction,
+                        'max_ai_fraction': request.max_ai_fraction,
+                        'min_relative_bookmark_ratio': request.min_relative_bookmark_ratio,
+                        'profile_min_bookmarks': request.profile_min_bookmarks,
+                        'merge_candidates': request.merge_candidates,
+                        'seed_sample': request.seed_sample,
+                        'sample_salt': request.sample_salt,
+                        'explore_ratio': request.explore_ratio,
                     },
                     'following': {
                         'synced_count': following_result.synced_count,

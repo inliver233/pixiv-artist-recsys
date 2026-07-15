@@ -287,6 +287,94 @@ class RankServiceTests(unittest.TestCase):
             self.assertTrue(any(reason.startswith('taste:score=') for reason in result.items[0].reasons))
             self.assertTrue(any(reason.startswith('purity:score=') for reason in result.items[0].reasons))
 
+    def test_rank_drops_high_ai_fraction_artists(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = RecommendationRepository(SQLiteDatabase(Path(tmpdir) / 'rank-ai-frac.sqlite3'))
+            repo.initialize()
+            repo.upsert_seed_user(SeedUser(user_id=7, refresh_token_ref='masked:token', allow_ai=False))
+            repo.upsert_artist(Artist(user_id=1001, name='followed', is_followed=True))
+            repo.upsert_following_edge(seed_user_id=7, artist_user_id=1001)
+            repo.upsert_illust(Illust(illust_id=8001, user_id=1001, title='f1', total_bookmarks=500))
+            repo.replace_user_taste_profile(seed_user_id=7, weights=[('blue_hair', 1.0)])
+
+            repo.upsert_artist(Artist(user_id=2001, name='clean'))
+            repo.upsert_illust(Illust(illust_id=9101, user_id=2001, title='c1', total_bookmarks=200, ai_type=0))
+            repo.upsert_illust(Illust(illust_id=9102, user_id=2001, title='c2', total_bookmarks=180, ai_type=0))
+            repo.replace_illust_tags(illust_id=9101, tags=['blue hair'])
+            repo.replace_illust_tags(illust_id=9102, tags=['blue hair'])
+
+            # 2/2 AI works → artist-level AI fraction gate drops even if allow_ai filters leave empty.
+            repo.upsert_artist(Artist(user_id=2002, name='mostly-ai'))
+            repo.upsert_illust(Illust(illust_id=9201, user_id=2002, title='a1', total_bookmarks=900, ai_type=1))
+            repo.upsert_illust(Illust(illust_id=9202, user_id=2002, title='a2', total_bookmarks=850, ai_type=2))
+            repo.replace_illust_tags(illust_id=9201, tags=['blue hair'])
+            repo.replace_illust_tags(illust_id=9202, tags=['blue hair'])
+
+            # 1 AI + 1 clean → fraction 0.5 > 0.15 → drop
+            repo.upsert_artist(Artist(user_id=2003, name='half-ai'))
+            repo.upsert_illust(Illust(illust_id=9301, user_id=2003, title='h1', total_bookmarks=400, ai_type=1))
+            repo.upsert_illust(Illust(illust_id=9302, user_id=2003, title='h2', total_bookmarks=380, ai_type=0))
+            repo.replace_illust_tags(illust_id=9301, tags=['blue hair'])
+            repo.replace_illust_tags(illust_id=9302, tags=['blue hair'])
+
+            repo.replace_artist_candidates(
+                seed_user_id=7,
+                candidates=[
+                    (2001, 'user_related', 'user:1001', 1.0, 'clean'),
+                    (2002, 'user_related', 'user:1001', 1.0, 'ai'),
+                    (2003, 'user_related', 'user:1001', 1.0, 'half'),
+                ],
+            )
+
+            result = HeuristicArtistRankService(
+                repository=repo,
+                max_ai_fraction=0.15,
+                min_relative_bookmark_ratio=0.0,
+            ).rank_from_store(seed_user_id=7, min_score=0.05, min_total_bookmarks=50)
+
+            self.assertEqual([item.artist.user_id for item in result.items], [2001])
+
+    def test_rank_relative_quality_raises_effective_min_bookmarks(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = RecommendationRepository(SQLiteDatabase(Path(tmpdir) / 'rank-relative.sqlite3'))
+            repo.initialize()
+            repo.upsert_seed_user(SeedUser(user_id=7, refresh_token_ref='masked:token'))
+            # Followed tier: max bookmarks median around 1000
+            for artist_id, bm in ((1001, 800), (1002, 1000), (1003, 1200)):
+                repo.upsert_artist(Artist(user_id=artist_id, name=f'f{artist_id}', is_followed=True))
+                repo.upsert_following_edge(seed_user_id=7, artist_user_id=artist_id)
+                repo.upsert_illust(Illust(illust_id=artist_id * 10, user_id=artist_id, title='f', total_bookmarks=bm))
+            repo.replace_user_taste_profile(seed_user_id=7, weights=[('blue_hair', 1.0)])
+
+            # Mid-tier candidate: absolute min_bookmarks=50 would pass, relative 0.35*1000=350 fails.
+            repo.upsert_artist(Artist(user_id=2001, name='mid-tier'))
+            repo.upsert_illust(Illust(illust_id=9101, user_id=2001, title='m1', total_bookmarks=120))
+            repo.upsert_illust(Illust(illust_id=9102, user_id=2001, title='m2', total_bookmarks=100))
+            repo.replace_illust_tags(illust_id=9101, tags=['blue hair'])
+            repo.replace_illust_tags(illust_id=9102, tags=['blue hair'])
+
+            repo.upsert_artist(Artist(user_id=2002, name='high-tier'))
+            repo.upsert_illust(Illust(illust_id=9201, user_id=2002, title='h1', total_bookmarks=600))
+            repo.upsert_illust(Illust(illust_id=9202, user_id=2002, title='h2', total_bookmarks=500))
+            repo.replace_illust_tags(illust_id=9201, tags=['blue hair'])
+            repo.replace_illust_tags(illust_id=9202, tags=['blue hair'])
+
+            repo.replace_artist_candidates(
+                seed_user_id=7,
+                candidates=[
+                    (2001, 'user_related', 'user:1001', 1.0, 'mid'),
+                    (2002, 'user_related', 'user:1001', 1.0, 'high'),
+                ],
+            )
+
+            result = HeuristicArtistRankService(
+                repository=repo,
+                min_relative_bookmark_ratio=0.35,
+            ).rank_from_store(seed_user_id=7, min_score=0.05, min_total_bookmarks=50)
+
+            self.assertEqual([item.artist.user_id for item in result.items], [2002])
+            self.assertTrue(any('quality:relative_min=' in reason for reason in result.items[0].reasons))
+
 
 if __name__ == '__main__':
     unittest.main()

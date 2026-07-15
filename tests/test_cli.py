@@ -88,14 +88,14 @@ class FakeFullRecommendClient:
 
     def fetch_illust_detail(self, *, illust_id: int):
         payloads = {
-            10011: self._detail(10011, 1001, ['Blue Hair', '制服'], 40, 400, 5),
-            10012: self._detail(10012, 1001, ['Blue Hair'], 35, 350, 4),
-            10021: self._detail(10021, 1002, ['blue hair', '夜景'], 30, 300, 3),
-            10022: self._detail(10022, 1002, ['blue hair'], 28, 280, 2),
-            20011: self._detail(20011, 2001, ['blue hair', '制服'], 150, 1500, 12),
-            20012: self._detail(20012, 2001, ['blue hair', '制服'], 140, 1400, 11),
-            20021: self._detail(20021, 2002, ['风景'], 20, 200, 2),
-            20022: self._detail(20022, 2002, ['风景'], 18, 180, 1),
+            10011: self._detail(10011, 1001, ['Blue Hair', '制服'], 520, 5200, 25),
+            10012: self._detail(10012, 1001, ['Blue Hair'], 480, 4800, 22),
+            10021: self._detail(10021, 1002, ['blue hair', '夜景'], 500, 5000, 20),
+            10022: self._detail(10022, 1002, ['blue hair'], 460, 4600, 18),
+            20011: self._detail(20011, 2001, ['blue hair', '制服'], 650, 6500, 30),
+            20012: self._detail(20012, 2001, ['blue hair', '制服'], 600, 6000, 28),
+            20021: self._detail(20021, 2002, ['风景'], 40, 400, 2),
+            20022: self._detail(20022, 2002, ['风景'], 30, 300, 1),
         }
         return payloads[illust_id]
 
@@ -443,9 +443,9 @@ class CLITests(unittest.TestCase):
             for artist_id in [1001, 1002]:
                 repo.upsert_artist(Artist(user_id=artist_id, name=f'artist-{artist_id}', is_followed=True))
                 repo.upsert_following_edge(seed_user_id=7, artist_user_id=artist_id)
-            repo.upsert_illust(Illust(illust_id=1, user_id=1001, title='a'))
+            repo.upsert_illust(Illust(illust_id=1, user_id=1001, title='a', total_bookmarks=300))
             repo.replace_illust_tags(illust_id=1, tags=['Blue Hair', '制服'])
-            repo.upsert_illust(Illust(illust_id=2, user_id=1002, title='b'))
+            repo.upsert_illust(Illust(illust_id=2, user_id=1002, title='b', total_bookmarks=280))
             repo.replace_illust_tags(illust_id=2, tags=['blue hair', '夜景'])
 
             exit_code, payload = self._run_main_inprocess('build-profile', '--seed-user-id', '7', tmpdir=tmpdir)
@@ -510,7 +510,7 @@ class CLITests(unittest.TestCase):
             self.assertEqual(payload['illusts_upserted'], 2)
             self.assertEqual(repo.count_rows('illusts'), 2)
             self.assertTrue(payload['sync_following'])
-            self.assertEqual(payload['max_artists'], 90)
+            self.assertEqual(payload['max_artists'], 600)
 
     def test_sync_following_and_offline_step_pipeline(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

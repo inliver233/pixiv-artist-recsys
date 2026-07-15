@@ -4,8 +4,9 @@
 Usage:
   python start.py                 # interactive menu
   python start.py status          # print status only
-  python start.py run             # one-click full pipeline (daily-large preset)
-  python start.py run --preset deep
+  python start.py run             # one-click full pipeline (daily mega-ish preset)
+  python start.py run --preset mega
+  python start.py campaign --rounds 4   # multi-round + consensus
   python start.py steps           # step pipeline (mother once, then child ops)
   python start.py import-config   # re-import from downloader-personal
 
@@ -30,72 +31,138 @@ REPO_ROOT = Path(__file__).resolve().parent
 DEFAULT_DOWNLOADER = Path(r'E:/pixiv-download-修改版本/pixiv-downloader-personal')
 SRC = REPO_ROOT / 'src'
 
-# ~2600 following / single child token: depth + steady pacing over concurrency.
-# following sync itself still full-syncs; seed/candidate caps avoid unbounded API.
+# v4 mega scale: large high-tier pool (~2000–3000 following, single child token).
+# quality gates stay high; multi-round campaign uses sample_salt + consensus overlap.
 PRESETS: dict[str, dict[str, Any]] = {
     'quick': {
-        'label': '日常快速（少 API）',
-        'followed_artist_limit': 6,
-        'candidate_artist_limit': 4,
-        'max_related_per_artist': 4,
-        'max_related_per_illust': 4,
-        'max_seed_artists': 40,
-        'max_candidate_artists': 70,
-        'max_user_recommended': 20,
-        'max_tag_search_tags': 3,
-        'max_tag_search_illusts': 12,
-        # Seed-artist public following expand (partial sample, not full crawl)
-        'enable_seed_following': True,
-        'max_seed_following_artists': 6,
-        'max_following_per_seed_artist': 12,
-        'seed_sample': 'random',
-        'seed_following_sample': 'random',
-        'max_results': 40,
-        'min_bookmarks': 30,
-        'min_score': 0.28,
-        'diversity_per_tag': 2,
-    },
-    'daily': {
-        'label': '精准日常（约 2600 关注默认）',
-        'followed_artist_limit': 10,
-        'candidate_artist_limit': 6,
-        'max_related_per_artist': 6,
-        'max_related_per_illust': 6,
-        'max_seed_artists': 90,
-        'max_candidate_artists': 130,
-        'max_user_recommended': 30,
-        'max_tag_search_tags': 5,
-        'max_tag_search_illusts': 20,
-        'enable_seed_following': True,
-        'max_seed_following_artists': 12,
-        'max_following_per_seed_artist': 18,
-        'seed_sample': 'random',
-        'seed_following_sample': 'random',
-        'max_results': 60,
-        'min_bookmarks': 30,
-        'min_score': 0.28,
-        'diversity_per_tag': 3,
-    },
-    'deep': {
-        'label': '深度扫描（更慢、更多召回）',
+        'label': 'v4 快速（中等召回 + 质量优先）',
         'followed_artist_limit': 12,
         'candidate_artist_limit': 8,
-        'max_related_per_artist': 8,
-        'max_related_per_illust': 8,
-        'max_seed_artists': 140,
-        'max_candidate_artists': 200,
-        'max_user_recommended': 40,
+        'max_related_per_artist': 10,
+        'max_related_per_illust': 10,
+        'max_seed_artists': 200,
+        'max_candidate_artists': 400,
+        'max_user_recommended': 50,
         'max_tag_search_tags': 8,
         'max_tag_search_illusts': 30,
         'enable_seed_following': True,
-        'max_seed_following_artists': 18,
-        'max_following_per_seed_artist': 24,
-        'seed_sample': 'random',
-        'seed_following_sample': 'random',
-        'max_results': 80,
-        'min_bookmarks': 20,
+        'max_seed_following_artists': 24,
+        'max_following_per_seed_artist': 30,
+        'seed_sample': 'quality_first',
+        'seed_following_sample': 'quality_first',
+        'merge_candidates': True,
+        'profile_min_bookmarks': 150,
+        'max_results': 200,
+        'min_bookmarks': 60,
         'min_score': 0.24,
-        'diversity_per_tag': 3,
+        'diversity_per_tag': 5,
+        'max_ai_fraction': 0.15,
+        'min_relative_bookmark_ratio': 0.30,
+        'explore_ratio': 0.30,
+    },
+    'daily': {
+        'label': 'v4 日常大池（约 2600 关注默认）',
+        'followed_artist_limit': 16,
+        'candidate_artist_limit': 10,
+        'max_related_per_artist': 14,
+        'max_related_per_illust': 14,
+        'max_seed_artists': 400,
+        'max_candidate_artists': 1000,
+        'max_user_recommended': 80,
+        'max_tag_search_tags': 12,
+        'max_tag_search_illusts': 40,
+        'enable_seed_following': True,
+        'max_seed_following_artists': 48,
+        'max_following_per_seed_artist': 40,
+        'seed_sample': 'quality_first',
+        'seed_following_sample': 'quality_first',
+        'merge_candidates': True,
+        'profile_min_bookmarks': 200,
+        'max_results': 500,
+        'min_bookmarks': 80,
+        'min_score': 0.24,
+        'diversity_per_tag': 6,
+        'max_ai_fraction': 0.12,
+        'min_relative_bookmark_ratio': 0.35,
+        'explore_ratio': 0.30,
+    },
+    'deep': {
+        'label': 'v4 深度大扫（更大召回 + 更高门槛）',
+        'followed_artist_limit': 18,
+        'candidate_artist_limit': 12,
+        'max_related_per_artist': 16,
+        'max_related_per_illust': 16,
+        'max_seed_artists': 700,
+        'max_candidate_artists': 1800,
+        'max_user_recommended': 100,
+        'max_tag_search_tags': 16,
+        'max_tag_search_illusts': 50,
+        'enable_seed_following': True,
+        'max_seed_following_artists': 80,
+        'max_following_per_seed_artist': 50,
+        'seed_sample': 'quality_first',
+        'seed_following_sample': 'quality_first',
+        'merge_candidates': True,
+        'profile_min_bookmarks': 250,
+        'max_results': 1000,
+        'min_bookmarks': 100,
+        'min_score': 0.24,
+        'diversity_per_tag': 8,
+        'max_ai_fraction': 0.12,
+        'min_relative_bookmark_ratio': 0.38,
+        'explore_ratio': 0.32,
+    },
+    'mega': {
+        'label': 'v4 超大池（单轮大气量，质量门槛不降）',
+        'followed_artist_limit': 20,
+        'candidate_artist_limit': 14,
+        'max_related_per_artist': 20,
+        'max_related_per_illust': 20,
+        'max_seed_artists': 1200,
+        'max_candidate_artists': 4000,
+        'max_user_recommended': 120,
+        'max_tag_search_tags': 24,
+        'max_tag_search_illusts': 60,
+        'enable_seed_following': True,
+        'max_seed_following_artists': 120,
+        'max_following_per_seed_artist': 60,
+        'seed_sample': 'quality_first',
+        'seed_following_sample': 'quality_first',
+        'merge_candidates': True,
+        'profile_min_bookmarks': 250,
+        'max_results': 2000,
+        'min_bookmarks': 100,
+        'min_score': 0.24,
+        'diversity_per_tag': 12,
+        'max_ai_fraction': 0.12,
+        'min_relative_bookmark_ratio': 0.35,
+        'explore_ratio': 0.35,
+    },
+    'campaign': {
+        'label': 'v4 多轮战役基底（每轮大池，再做共识）',
+        'followed_artist_limit': 16,
+        'candidate_artist_limit': 12,
+        'max_related_per_artist': 16,
+        'max_related_per_illust': 16,
+        'max_seed_artists': 500,
+        'max_candidate_artists': 1500,
+        'max_user_recommended': 100,
+        'max_tag_search_tags': 16,
+        'max_tag_search_illusts': 50,
+        'enable_seed_following': True,
+        'max_seed_following_artists': 80,
+        'max_following_per_seed_artist': 50,
+        'seed_sample': 'quality_first',
+        'seed_following_sample': 'quality_first',
+        'merge_candidates': True,
+        'profile_min_bookmarks': 200,
+        'max_results': 2000,
+        'min_bookmarks': 80,
+        'min_score': 0.24,
+        'diversity_per_tag': 10,
+        'max_ai_fraction': 0.12,
+        'min_relative_bookmark_ratio': 0.35,
+        'explore_ratio': 0.30,
     },
 }
 
@@ -637,18 +704,24 @@ def cmd_run(args: argparse.Namespace) -> int:
             max_related_per_illust=int(preset['max_related_per_illust']),
             max_seed_artists=int(preset['max_seed_artists']),
             max_candidate_artists=int(preset['max_candidate_artists']),
-            seed_sample=str(preset.get('seed_sample', 'random')),
+            seed_sample=str(preset.get('seed_sample', 'quality_first')),
             max_user_recommended=int(preset['max_user_recommended']),
             max_tag_search_tags=int(preset['max_tag_search_tags']),
             max_tag_search_illusts=int(preset['max_tag_search_illusts']),
             enable_seed_following=bool(preset['enable_seed_following']),
             max_seed_following_artists=int(preset['max_seed_following_artists']),
             max_following_per_seed_artist=int(preset['max_following_per_seed_artist']),
-            seed_following_sample=str(preset['seed_following_sample']),
+            seed_following_sample=str(preset.get('seed_following_sample', 'quality_first')),
+            merge_candidates=bool(preset.get('merge_candidates', True)),
+            profile_min_bookmarks=int(preset.get('profile_min_bookmarks', 200)),
             max_results=int(preset['max_results']),
             min_bookmarks=int(preset['min_bookmarks']),
             min_score=float(preset['min_score']),
             diversity_per_tag=int(preset['diversity_per_tag']),
+            max_ai_fraction=float(preset.get('max_ai_fraction', 0.15)),
+            min_relative_bookmark_ratio=float(preset.get('min_relative_bookmark_ratio', 0.35)),
+            sample_salt=getattr(args, 'sample_salt', None),
+            explore_ratio=float(preset.get('explore_ratio', 0.25)),
             on_progress=tui,
         )
     except Exception as exc:  # noqa: BLE001 — surface live failures cleanly
@@ -730,14 +803,20 @@ def cmd_steps(args: argparse.Namespace) -> int:
                 seed_user_id=seed,
                 per_artist_limit=int(preset['followed_artist_limit']),
                 max_artists=int(preset['max_seed_artists']),
-                seed_sample=str(preset.get('seed_sample', 'random')),
+                seed_sample=str(preset.get('seed_sample', 'quality_first')),
                 sync_following=False,
                 on_progress=tui,
             ),
         )
 
         print('>>> step: build-profile', flush=True)
-        note('build-profile', facade.build_profile_payload(seed_user_id=seed))
+        note(
+            'build-profile',
+            facade.build_profile_payload(
+                seed_user_id=seed,
+                profile_min_bookmarks=int(preset.get('profile_min_bookmarks', 200)),
+            ),
+        )
 
         print('>>> step: build-candidates (child)', flush=True)
         note(
@@ -747,14 +826,15 @@ def cmd_steps(args: argparse.Namespace) -> int:
                 max_related_per_artist=int(preset['max_related_per_artist']),
                 max_related_per_illust=int(preset['max_related_per_illust']),
                 max_seed_artists=int(preset['max_seed_artists']),
-                seed_sample=str(preset.get('seed_sample', 'random')),
+                seed_sample=str(preset.get('seed_sample', 'quality_first')),
                 max_user_recommended=int(preset['max_user_recommended']),
                 max_tag_search_tags=int(preset['max_tag_search_tags']),
                 max_tag_search_illusts=int(preset['max_tag_search_illusts']),
                 enable_seed_following=bool(preset['enable_seed_following']),
                 max_seed_following_artists=int(preset['max_seed_following_artists']),
                 max_following_per_seed_artist=int(preset['max_following_per_seed_artist']),
-                seed_following_sample=str(preset['seed_following_sample']),
+                seed_following_sample=str(preset.get('seed_following_sample', 'quality_first')),
+                merge_candidates=bool(preset.get('merge_candidates', True)),
                 on_progress=tui,
             ),
         )
@@ -766,7 +846,7 @@ def cmd_steps(args: argparse.Namespace) -> int:
                 seed_user_id=seed,
                 per_artist_limit=int(preset['candidate_artist_limit']),
                 max_artists=int(preset['max_candidate_artists']),
-                seed_sample=str(preset.get('seed_sample', 'random')),
+                seed_sample=str(preset.get('seed_sample', 'quality_first')),
                 on_progress=tui,
             ),
         )
@@ -778,6 +858,8 @@ def cmd_steps(args: argparse.Namespace) -> int:
             diversity_per_tag=int(preset['diversity_per_tag']),
             min_bookmarks=int(preset['min_bookmarks']),
             min_score=float(preset['min_score']),
+            max_ai_fraction=float(preset.get('max_ai_fraction', 0.15)),
+            min_relative_bookmark_ratio=float(preset.get('min_relative_bookmark_ratio', 0.35)),
         )
         note('recommend-from-store', {'item_count': rec.get('item_count'), 'items': rec.get('items', [])[:10]})
 
@@ -794,16 +876,165 @@ def cmd_steps(args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_campaign(args: argparse.Namespace) -> int:
+    """Multi-round large-pool runs + consensus on overlaps (higher-confidence artists)."""
+    from pixiv_artist_recsys.rank import build_multi_round_consensus, campaign_seed_plan, extract_round_items
+
+    load_dotenv(REPO_ROOT / '.env')
+    report = build_status(downloader_root=Path(args.downloader_root), seed_user_id=args.seed_user_id)
+    if not args.json:
+        report.print_human()
+    if not report.payload['readiness']['ready'] and not args.force:
+        print('未就绪：请先配置 .env。可用 --force 强行继续。', file=sys.stderr)
+        return 2
+
+    seed = resolve_seed_user_id(args.seed_user_id)
+    if seed is None:
+        print('缺少 seed_user_id', file=sys.stderr)
+        return 2
+
+    preset_name = args.preset if args.preset in PRESETS else 'campaign'
+    if preset_name not in PRESETS:
+        preset_name = 'campaign'
+    preset = dict(PRESETS[preset_name])
+    for key in (
+        'max_seed_artists',
+        'max_candidate_artists',
+        'followed_artist_limit',
+        'candidate_artist_limit',
+        'max_results',
+        'min_bookmarks',
+    ):
+        value = getattr(args, key, None)
+        if value is not None:
+            preset[key] = value
+
+    rounds = max(1, int(getattr(args, 'rounds', 4) or 4))
+    min_hits = max(1, int(getattr(args, 'min_hits', 2) or 2))
+    plan = campaign_seed_plan(rounds=rounds)
+    facade = _build_facade()
+    out_dir = REPO_ROOT / 'data' / 'local' / 'exports' / f'campaign-{seed}-{int(time.time())}'
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    print()
+    print(f">>> multi-round campaign  rounds={rounds} min_hits={min_hits} preset={preset_name}")
+    print(
+        f"    seed={seed} max_seed={preset['max_seed_artists']} "
+        f"max_candidate={preset['max_candidate_artists']} max_results/round={preset['max_results']}"
+    )
+    print('    每轮 sample_salt 轮换 + seed 模式交替；merge_candidates 累积证据；共识按命中轮数加权。')
+    print(f'    输出目录: {out_dir}')
+    print()
+
+    round_payloads: list[dict[str, Any]] = []
+    round_item_lists: list[list[dict[str, Any]]] = []
+    for step in plan:
+        round_index = int(step['round_index'])
+        tui = ProgressTui(quiet=bool(args.json))
+        print(
+            f"--- round {round_index + 1}/{rounds} "
+            f"mode={step['seed_sample']} salt={step['sample_salt']} explore={step['explore_ratio']} ---",
+            flush=True,
+        )
+        try:
+            payload = facade.full_recommend_payload(
+                seed_user_id=seed,
+                refresh_token=None,
+                following_refresh_token=None,
+                followed_artist_limit=int(preset['followed_artist_limit']),
+                candidate_artist_limit=int(preset['candidate_artist_limit']),
+                max_related_per_artist=int(preset['max_related_per_artist']),
+                max_related_per_illust=int(preset['max_related_per_illust']),
+                max_seed_artists=int(preset['max_seed_artists']),
+                max_candidate_artists=int(preset['max_candidate_artists']),
+                seed_sample=str(step['seed_sample']),
+                max_user_recommended=int(preset['max_user_recommended']),
+                max_tag_search_tags=int(preset['max_tag_search_tags']),
+                max_tag_search_illusts=int(preset['max_tag_search_illusts']),
+                enable_seed_following=bool(preset['enable_seed_following']),
+                max_seed_following_artists=int(preset['max_seed_following_artists']),
+                max_following_per_seed_artist=int(preset['max_following_per_seed_artist']),
+                seed_following_sample=str(step['seed_following_sample']),
+                merge_candidates=bool(preset.get('merge_candidates', True)),
+                profile_min_bookmarks=int(preset.get('profile_min_bookmarks', 200)),
+                max_results=int(preset['max_results']),
+                min_bookmarks=int(preset['min_bookmarks']),
+                min_score=float(preset['min_score']),
+                diversity_per_tag=int(preset['diversity_per_tag']),
+                max_ai_fraction=float(preset.get('max_ai_fraction', 0.12)),
+                min_relative_bookmark_ratio=float(preset.get('min_relative_bookmark_ratio', 0.35)),
+                sample_salt=step['sample_salt'],
+                explore_ratio=float(step['explore_ratio'] or preset.get('explore_ratio', 0.30)),
+                on_progress=tui,
+            )
+        except Exception as exc:  # noqa: BLE001
+            tui.close()
+            print(f'CAMPAIGN ROUND {round_index + 1} FAILED: {type(exc).__name__}: {exc}', file=sys.stderr)
+            return 1
+        tui.close()
+
+        items = extract_round_items(payload)
+        round_item_lists.append(items)
+        compact = {
+            'round_index': round_index,
+            'sample_salt': step['sample_salt'],
+            'seed_sample': step['seed_sample'],
+            'run_id': payload.get('run_id'),
+            'item_count': len(items),
+            'recommended_artist_ids': payload.get('recommended_artist_ids'),
+            'stats': payload.get('stats'),
+        }
+        round_payloads.append(compact)
+        round_path = out_dir / f'round-{round_index + 1:02d}.json'
+        round_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding='utf-8')
+        print(json.dumps(compact, ensure_ascii=False, indent=2), flush=True)
+
+    consensus = build_multi_round_consensus(
+        round_item_lists,
+        min_hits=min_hits,
+        max_results=int(getattr(args, 'consensus_max_results', 0) or max(500, int(preset['max_results']))),
+    )
+    consensus_payload = {
+        'seed_user_id': seed,
+        'preset': preset_name,
+        'rounds': rounds,
+        'min_hits': min_hits,
+        'round_summaries': round_payloads,
+        'consensus_count': len(consensus),
+        'consensus_artist_ids': [row.artist_user_id for row in consensus],
+        'items': [row.to_dict() for row in consensus],
+    }
+    consensus_path = out_dir / 'consensus.json'
+    consensus_path.write_text(json.dumps(consensus_payload, ensure_ascii=False, indent=2), encoding='utf-8')
+    print()
+    print(
+        json.dumps(
+            {
+                'ok': True,
+                'output_dir': str(out_dir),
+                'consensus_path': str(consensus_path),
+                'consensus_count': len(consensus),
+                'top_consensus_ids': [row.artist_user_id for row in consensus[:30]],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
+
 def interactive_menu(args: argparse.Namespace) -> int:
     report = build_status(downloader_root=Path(args.downloader_root), seed_user_id=args.seed_user_id)
     report.print_human()
     print()
     print('选择操作:')
-    print('  1) 一键 full-recommend（daily 预设，适合 ~2600 关注抽样）')
+    print('  1) 一键 full-recommend（v4 daily 大池）')
     print('  2) 分步启动（母号只 sync 一次，可跳过已有关注）')
     print('  3) 深度扫描 deep')
-    print('  4) 仅刷新状态')
-    print('  5) 从 downloader 重新导入配置')
+    print('  4) 超大池 mega（单轮大气量）')
+    print('  5) 多轮战役 campaign（3–4 轮共识）')
+    print('  6) 仅刷新状态')
+    print('  7) 从 downloader 重新导入配置')
     print('  0) 退出')
     try:
         choice = input('> ').strip()
@@ -821,8 +1052,16 @@ def interactive_menu(args: argparse.Namespace) -> int:
         args.preset = 'deep'
         return cmd_run(args)
     if choice == '4':
-        return cmd_status(args)
+        args.preset = 'mega'
+        return cmd_run(args)
     if choice == '5':
+        args.preset = 'campaign'
+        args.rounds = getattr(args, 'rounds', 4) or 4
+        args.min_hits = getattr(args, 'min_hits', 2) or 2
+        return cmd_campaign(args)
+    if choice == '6':
+        return cmd_status(args)
+    if choice == '7':
         return cmd_import_config(args)
     return 0
 
@@ -853,6 +1092,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_p.add_argument('--candidate-artist-limit', type=int)
     run_p.add_argument('--max-results', type=int)
     run_p.add_argument('--min-bookmarks', type=int)
+    run_p.add_argument('--sample-salt', type=int, default=None, help='rotate seed sample for multi-round')
     run_p.add_argument('--seed-user-id', type=int, default=0)
     run_p.add_argument('--downloader-root', default=str(DEFAULT_DOWNLOADER))
     run_p.add_argument('--json', action='store_true')
@@ -872,6 +1112,22 @@ def build_parser() -> argparse.ArgumentParser:
     steps_p.add_argument('--seed-user-id', type=int, default=0)
     steps_p.add_argument('--downloader-root', default=str(DEFAULT_DOWNLOADER))
     steps_p.add_argument('--json', action='store_true')
+
+    camp_p = sub.add_parser('campaign', help='Multi-round large-pool + consensus ranking')
+    camp_p.add_argument('--preset', choices=sorted(PRESETS.keys()), default='campaign')
+    camp_p.add_argument('--rounds', type=int, default=4, help='number of independent large rounds (default 4)')
+    camp_p.add_argument('--min-hits', type=int, default=2, help='min rounds an artist must appear in for consensus')
+    camp_p.add_argument('--consensus-max-results', type=int, default=0, help='0 = auto from preset max_results')
+    camp_p.add_argument('--force', action='store_true')
+    camp_p.add_argument('--max-seed-artists', type=int)
+    camp_p.add_argument('--max-candidate-artists', type=int)
+    camp_p.add_argument('--followed-artist-limit', type=int)
+    camp_p.add_argument('--candidate-artist-limit', type=int)
+    camp_p.add_argument('--max-results', type=int)
+    camp_p.add_argument('--min-bookmarks', type=int)
+    camp_p.add_argument('--seed-user-id', type=int, default=0)
+    camp_p.add_argument('--downloader-root', default=str(DEFAULT_DOWNLOADER))
+    camp_p.add_argument('--json', action='store_true')
 
     imp = sub.add_parser('import-config', help='Import mother/child/proxy from downloader-personal')
     imp.add_argument('--downloader-root', default=str(DEFAULT_DOWNLOADER))
@@ -905,6 +1161,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_run(args)
     if command == 'steps':
         return cmd_steps(args)
+    if command == 'campaign':
+        return cmd_campaign(args)
     if command == 'import-config':
         return cmd_import_config(args)
     parser.error(f'unknown command: {command}')

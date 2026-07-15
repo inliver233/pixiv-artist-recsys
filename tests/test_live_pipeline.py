@@ -42,15 +42,16 @@ class FakeLivePixivClient:
         return PagedResult(items=mapping.get(user_id, []), next_url=None)
 
     def fetch_illust_detail(self, *, illust_id: int):
+        # Bookmark tiers must clear v3 profile_min_bookmarks (200) and relative quality vs followed median.
         payloads = {
-            10011: self._detail(10011, 1001, ['Blue Hair', '制服'], 40, 400, 5),
-            10012: self._detail(10012, 1001, ['Blue Hair'], 35, 350, 4),
-            10021: self._detail(10021, 1002, ['blue hair', '夜景'], 30, 300, 3),
-            10022: self._detail(10022, 1002, ['blue hair'], 28, 280, 2),
-            20011: self._detail(20011, 2001, ['blue hair', '制服'], 150, 1500, 12),
-            20012: self._detail(20012, 2001, ['blue hair', '制服'], 140, 1400, 11),
-            20021: self._detail(20021, 2002, ['风景'], 20, 200, 2),
-            20022: self._detail(20022, 2002, ['风景'], 18, 180, 1),
+            10011: self._detail(10011, 1001, ['Blue Hair', '制服'], 520, 5200, 25),
+            10012: self._detail(10012, 1001, ['Blue Hair'], 480, 4800, 22),
+            10021: self._detail(10021, 1002, ['blue hair', '夜景'], 500, 5000, 20),
+            10022: self._detail(10022, 1002, ['blue hair'], 460, 4600, 18),
+            20011: self._detail(20011, 2001, ['blue hair', '制服'], 650, 6500, 30),
+            20012: self._detail(20012, 2001, ['blue hair', '制服'], 600, 6000, 28),
+            20021: self._detail(20021, 2002, ['风景'], 40, 400, 2),
+            20022: self._detail(20022, 2002, ['风景'], 30, 300, 1),
         }
         return payloads[illust_id]
 
