@@ -62,18 +62,20 @@ class FollowingSyncService:
                 pages += 1
                 if not page.items:
                     break
-                for item in page.items:
-                    self.repository.upsert_artist(
-                        Artist(
-                            user_id=item.user_id,
-                            name=item.name,
-                            account=item.account,
-                            is_followed=True,
-                            profile_image_url=item.profile_image_url,
+                # One transaction per page keeps fsync count at page level, not row level.
+                with self.repository.transaction():
+                    for item in page.items:
+                        self.repository.upsert_artist(
+                            Artist(
+                                user_id=item.user_id,
+                                name=item.name,
+                                account=item.account,
+                                is_followed=True,
+                                profile_image_url=item.profile_image_url,
+                            )
                         )
-                    )
-                    self.repository.upsert_following_edge(seed_user_id=seed_user_id, artist_user_id=item.user_id)
-                    synced_count += 1
+                        self.repository.upsert_following_edge(seed_user_id=seed_user_id, artist_user_id=item.user_id)
+                        synced_count += 1
                 emit(
                     on_progress,
                     stage='following_sync',

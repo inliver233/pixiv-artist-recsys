@@ -37,6 +37,9 @@ class AppRuntime:
             base_transport=base_transport or UrllibHttpTransport(),
             now_fn=now_fn,
         )
+        # persistent=False: short-lived CLI/API processes must release the file lock
+        # promptly on Windows; WAL + repository.transaction() batching carries the
+        # write-path speedup. Long-lived workers may opt into persistent=True and close().
         repository = RecommendationRepository(SQLiteDatabase(settings.storage.sqlite_path))
         return cls(settings=settings, repository=repository, transport=transport, proxy_pool=proxy_pool)
 

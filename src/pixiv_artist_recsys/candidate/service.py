@@ -342,16 +342,9 @@ class RelatedArtistCandidateService:
         )
 
     def _followed_quality_scores(self, followed_artist_ids: set[int] | list[int]) -> dict[int, float]:
-        scores: dict[int, float] = {}
-        for artist_id in followed_artist_ids:
-            illusts = self.repository.fetch_illusts_for_artist(artist_user_id=int(artist_id))
-            if not illusts:
-                scores[int(artist_id)] = 0.0
-                continue
-            max_bm = max(int(i.total_bookmarks or 0) for i in illusts)
-            # log-scale so mega-popular artists do not fully dominate seed picks.
-            scores[int(artist_id)] = float(max_bm)
-        return scores
+        ids = [int(artist_id) for artist_id in followed_artist_ids]
+        max_bm = self.repository.fetch_max_bookmarks_by_artist(artist_user_ids=ids)
+        return {artist_id: float(max_bm.get(artist_id, 0)) for artist_id in ids}
 
     def _accept_user_candidate(
         self,

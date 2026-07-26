@@ -108,13 +108,12 @@ class UserTasteProfileService:
         # contribute to taste (avoids sparse/low-tier follows diluting the profile).
         quality_ids: set[int] | None = None
         if min_artist_bookmarks and min_artist_bookmarks > 0:
-            quality_ids = set()
-            for artist_id, _ in followed:
-                illusts = self.repository.fetch_illusts_for_artist(artist_user_id=artist_id)
-                if not illusts:
-                    continue
-                if max(int(i.total_bookmarks or 0) for i in illusts) >= int(min_artist_bookmarks):
-                    quality_ids.add(int(artist_id))
+            max_bm = self.repository.fetch_max_bookmarks_by_artist(
+                artist_user_ids=[int(artist_id) for artist_id, _ in followed]
+            )
+            quality_ids = {
+                artist_id for artist_id, bm in max_bm.items() if int(bm) >= int(min_artist_bookmarks)
+            }
         # Artist-level TF: each followed artist contributes each tag at most once (avoids one
         # prolific artist flooding the profile with 女の子-style mass tags).
         artist_tag_sets: list[set[str]] = []

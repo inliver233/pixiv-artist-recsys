@@ -195,13 +195,18 @@ class HeuristicArtistRankService:
                 continue
             evidence_map[candidate_user_id].append((source_type, source_key, weight, detail))
 
+        # Batch prefetch artists + illusts for all candidates (kills the 3-query-per-candidate N+1).
+        candidate_ids = list(evidence_map.keys())
+        artists_by_id = self.repository.fetch_artists_by_ids(artist_user_ids=candidate_ids)
+        illusts_by_artist = self.repository.fetch_illusts_for_artists(artist_user_ids=candidate_ids)
+
         results: list[RecommendationItem] = []
         primary_tags_by_artist: dict[int, str] = {}
         for candidate_user_id, evidences in evidence_map.items():
-            artist = self.repository.fetch_artist(artist_user_id=candidate_user_id)
+            artist = artists_by_id.get(candidate_user_id)
             if artist is None:
                 continue
-            illusts = self.repository.fetch_illusts_for_artist(artist_user_id=candidate_user_id)
+            illusts = illusts_by_artist.get(candidate_user_id, [])
             # Artist-level AI fraction (before per-illust AI strip) — mixed AI portfolios drop.
             if not resolved_allow_ai and illusts and ai_frac_limit >= 0:
                 ai_count = sum(1 for illust in illusts if int(getattr(illust, 'ai_type', 0) or 0) != 0)
@@ -516,12 +521,9 @@ class HeuristicArtistRankService:
         the bottom 60% after sort) so quality_first hydrate of only top seeds
         does not push the bar into the stratosphere and erase mid-high discoveries.
         """
-        maxima: list[int] = []
-        for artist_id in followed_ids:
-            illusts = self.repository.fetch_illusts_for_artist(artist_user_id=artist_id)
-            if not illusts:
-                continue
-            maxima.append(max(int(illust.total_bookmarks or 0) for illust in illusts))
+        # Aggregate only covers artists with local illusts — same as the old per-id loop.
+        max_bm = self.repository.fetch_max_bookmarks_by_artist(artist_user_ids=list(followed_ids))
+        maxima = [int(v) for v in max_bm.values()]
         if not maxima:
             return 0.0
         ordered = sorted(maxima)

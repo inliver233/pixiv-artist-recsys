@@ -97,14 +97,8 @@ class ArtistIllustHydrationService:
         )
 
     def _quality_scores(self, artist_ids: list[int]) -> dict[int, float]:
-        scores: dict[int, float] = {}
-        for artist_id in artist_ids:
-            illusts = self.repository.fetch_illusts_for_artist(artist_user_id=int(artist_id))
-            if not illusts:
-                scores[int(artist_id)] = 0.0
-                continue
-            scores[int(artist_id)] = float(max(int(i.total_bookmarks or 0) for i in illusts))
-        return scores
+        max_bm = self.repository.fetch_max_bookmarks_by_artist(artist_user_ids=[int(a) for a in artist_ids])
+        return {int(artist_id): float(max_bm.get(int(artist_id), 0)) for artist_id in artist_ids}
 
     def _candidate_priority_scores(self, *, seed_user_id: int, candidate_ids: list[int]) -> dict[int, float]:
         """Score candidates for hydrate sampling: evidence weight sum + local max bookmarks."""
@@ -115,13 +109,12 @@ class ArtistIllustHydrationService:
             cid = int(candidate_user_id)
             if cid in weight_sum:
                 weight_sum[cid] += float(weight)
-        scores: dict[int, float] = {}
-        for cid in candidate_ids:
-            illusts = self.repository.fetch_illusts_for_artist(artist_user_id=int(cid))
-            max_bm = max((int(i.total_bookmarks or 0) for i in illusts), default=0)
-            # Evidence first so multi-source unhydrated candidates still get hydrated.
-            scores[int(cid)] = float(weight_sum.get(int(cid), 0.0)) * 1000.0 + float(max_bm)
-        return scores
+        max_bm = self.repository.fetch_max_bookmarks_by_artist(artist_user_ids=[int(c) for c in candidate_ids])
+        # Evidence first so multi-source unhydrated candidates still get hydrated.
+        return {
+            int(cid): float(weight_sum.get(int(cid), 0.0)) * 1000.0 + float(max_bm.get(int(cid), 0))
+            for cid in candidate_ids
+        }
 
     def _hydrate_artist_ids(
         self,
@@ -150,34 +143,42 @@ class ArtistIllustHydrationService:
         for index, artist_user_id in enumerate(artist_user_ids, start=1):
             page = self.pixiv_client.fetch_user_illusts(user_id=artist_user_id)
             artist_illusts = 0
-            for summary in page.items[:per_artist_limit]:
-                detail = None
+            # Fetch details first, then persist the artist's batch in one transaction.
+            details_by_illust: dict[int, object] = {}
+            selected = list(page.items[:per_artist_limit])
+            for summary in selected:
                 # user_illusts list payload usually already has tags + ai/r18 flags.
                 # Skip illust/detail when tags are present → ~half the hydrate API volume.
-                if summary.tags:
-                    list_only_saves += 1
-                    self._upsert_from_summary(summary)
-                else:
-                    detail = self.pixiv_client.fetch_illust_detail(illust_id=summary.illust_id)
-                    detail_fetches += 1
-                    self.repository.upsert_illust(
-                        Illust(
-                            illust_id=detail.illust.illust_id,
-                            user_id=detail.illust.user_id,
-                            title=detail.illust.title,
-                            create_date=detail.illust.create_date,
-                            total_bookmarks=detail.illust.total_bookmarks,
-                            total_view=detail.illust.total_view,
-                            total_comments=detail.illust.total_comments,
-                            ai_type=detail.ai_type,
-                            x_restrict=detail.x_restrict,
-                            illust_type=detail.illust.illust_type or '',
-                            page_count=max(1, int(detail.page_count or detail.illust.page_count or 1)),
-                        )
+                if not summary.tags:
+                    details_by_illust[summary.illust_id] = self.pixiv_client.fetch_illust_detail(
+                        illust_id=summary.illust_id
                     )
-                    self.repository.replace_illust_tags(illust_id=detail.illust.illust_id, tags=detail.tags)
-                illusts_upserted += 1
-                artist_illusts += 1
+                    detail_fetches += 1
+            with self.repository.transaction():
+                for summary in selected:
+                    detail = details_by_illust.get(summary.illust_id)
+                    if detail is None:
+                        list_only_saves += 1
+                        self._upsert_from_summary(summary)
+                    else:
+                        self.repository.upsert_illust(
+                            Illust(
+                                illust_id=detail.illust.illust_id,
+                                user_id=detail.illust.user_id,
+                                title=detail.illust.title,
+                                create_date=detail.illust.create_date,
+                                total_bookmarks=detail.illust.total_bookmarks,
+                                total_view=detail.illust.total_view,
+                                total_comments=detail.illust.total_comments,
+                                ai_type=detail.ai_type,
+                                x_restrict=detail.x_restrict,
+                                illust_type=detail.illust.illust_type or '',
+                                page_count=max(1, int(detail.page_count or detail.illust.page_count or 1)),
+                            )
+                        )
+                        self.repository.replace_illust_tags(illust_id=detail.illust.illust_id, tags=detail.tags)
+                    illusts_upserted += 1
+                    artist_illusts += 1
             emit(
                 on_progress,
                 stage=stage,

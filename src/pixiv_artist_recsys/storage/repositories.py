@@ -1,11 +1,21 @@
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from dataclasses import asdict
+from typing import Iterator
 
 from ..auth.models import PixivTokenRecord
 from ..domain.models import Artist, Illust, RecommendationRun, SeedUser
 from .database import SQLiteDatabase
+
+# Stay below SQLITE_MAX_VARIABLE_NUMBER on conservative builds (999).
+_IN_CLAUSE_CHUNK = 900
+
+
+def _chunked(values: list[int], size: int = _IN_CLAUSE_CHUNK) -> Iterator[list[int]]:
+    for start in range(0, len(values), size):
+        yield values[start:start + size]
 
 
 class RecommendationRepository:
@@ -14,6 +24,12 @@ class RecommendationRepository:
 
     def initialize(self) -> None:
         self.database.initialize()
+
+    @contextmanager
+    def transaction(self) -> Iterator[None]:
+        """Group many repository calls into a single commit (bulk write paths)."""
+        with self.database.transaction():
+            yield
 
     def upsert_seed_user(self, seed_user: SeedUser) -> None:
         with self.database.connect() as conn:
@@ -333,6 +349,89 @@ class RecommendationRepository:
             for r in rows
         ]
 
+    def fetch_max_bookmarks_by_artist(self, *, artist_user_ids: list[int] | None = None) -> dict[int, int]:
+        """{artist_user_id: max(total_bookmarks)} in one aggregate query.
+
+        artist_user_ids=None returns the aggregate for every artist with illusts.
+        Artists without local illusts are absent from the result.
+        """
+        with self.database.connect() as conn:
+            if artist_user_ids is None:
+                rows = conn.execute(
+                    "SELECT user_id, MAX(total_bookmarks) AS max_bm FROM illusts GROUP BY user_id"
+                ).fetchall()
+                return {int(r['user_id']): int(r['max_bm'] or 0) for r in rows}
+            result: dict[int, int] = {}
+            for chunk in _chunked([int(a) for a in artist_user_ids]):
+                placeholders = ','.join(['?'] * len(chunk))
+                rows = conn.execute(
+                    f"SELECT user_id, MAX(total_bookmarks) AS max_bm FROM illusts "
+                    f"WHERE user_id IN ({placeholders}) GROUP BY user_id",
+                    tuple(chunk),
+                ).fetchall()
+                for r in rows:
+                    result[int(r['user_id'])] = int(r['max_bm'] or 0)
+            return result
+
+    def fetch_illusts_for_artists(self, *, artist_user_ids: list[int]) -> dict[int, list[Illust]]:
+        """Batch fetch_illusts_for_artist: {artist_user_id: illusts sorted by bookmarks desc}."""
+        result: dict[int, list[Illust]] = {}
+        if not artist_user_ids:
+            return result
+        with self.database.connect() as conn:
+            for chunk in _chunked([int(a) for a in artist_user_ids]):
+                placeholders = ','.join(['?'] * len(chunk))
+                rows = conn.execute(
+                    f"""
+                    SELECT illust_id, user_id, title, create_date, total_bookmarks, total_view, total_comments,
+                           ai_type, x_restrict, illust_type, page_count
+                    FROM illusts
+                    WHERE user_id IN ({placeholders})
+                    ORDER BY user_id, total_bookmarks DESC, illust_id DESC
+                    """,
+                    tuple(chunk),
+                ).fetchall()
+                for r in rows:
+                    result.setdefault(int(r['user_id']), []).append(
+                        Illust(
+                            illust_id=int(r['illust_id']),
+                            user_id=int(r['user_id']),
+                            title=str(r['title']),
+                            create_date=str(r['create_date']),
+                            total_bookmarks=int(r['total_bookmarks']),
+                            total_view=int(r['total_view']),
+                            total_comments=int(r['total_comments']),
+                            ai_type=int(r['ai_type']),
+                            x_restrict=int(r['x_restrict']),
+                            illust_type=str(r['illust_type'] or ''),
+                            page_count=max(1, int(r['page_count'] or 1)),
+                        )
+                    )
+        return result
+
+    def fetch_artists_by_ids(self, *, artist_user_ids: list[int]) -> dict[int, Artist]:
+        """Batch fetch_artist for the rank loop."""
+        result: dict[int, Artist] = {}
+        if not artist_user_ids:
+            return result
+        with self.database.connect() as conn:
+            for chunk in _chunked([int(a) for a in artist_user_ids]):
+                placeholders = ','.join(['?'] * len(chunk))
+                rows = conn.execute(
+                    f"SELECT user_id, name, account, is_followed, profile_image_url "
+                    f"FROM artists WHERE user_id IN ({placeholders})",
+                    tuple(chunk),
+                ).fetchall()
+                for r in rows:
+                    result[int(r['user_id'])] = Artist(
+                        user_id=int(r['user_id']),
+                        name=str(r['name']),
+                        account=str(r['account']),
+                        is_followed=bool(r['is_followed']),
+                        profile_image_url=str(r['profile_image_url']),
+                    )
+        return result
+
     def fetch_illust_tag_map(self, *, illust_ids: list[int]) -> dict[int, list[str]]:
         """Return {illust_id: [tags...]} for genre-fraction and pair matching."""
         if not illust_ids:
@@ -430,11 +529,25 @@ class RecommendationRepository:
         return [int(r['artist_user_id']) for r in rows]
 
     def fetch_followed_tags(self, *, seed_user_id: int) -> list[tuple[int, list[str]]]:
-        artists = self.list_following_artist_ids(seed_user_id=seed_user_id)
-        result: list[tuple[int, list[str]]] = []
-        for artist_id in artists:
-            result.append((artist_id, self.fetch_artist_tags(artist_user_id=artist_id)))
-        return result
+        artist_ids = self.list_following_artist_ids(seed_user_id=seed_user_id)
+        tags_by_artist: dict[int, list[str]] = {artist_id: [] for artist_id in artist_ids}
+        with self.database.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT i.user_id, t.tag
+                FROM illust_tags t
+                JOIN illusts i ON i.illust_id = t.illust_id
+                JOIN seed_user_following_artists s ON s.artist_user_id = i.user_id
+                WHERE s.seed_user_id = ?
+                ORDER BY i.user_id, t.tag
+                """,
+                (seed_user_id,),
+            ).fetchall()
+        for row in rows:
+            artist_id = int(row['user_id'])
+            if artist_id in tags_by_artist:
+                tags_by_artist[artist_id].append(str(row['tag']))
+        return [(artist_id, tags_by_artist[artist_id]) for artist_id in artist_ids]
 
     def replace_artist_candidates(
         self,

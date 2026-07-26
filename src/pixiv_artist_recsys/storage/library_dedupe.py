@@ -161,8 +161,12 @@ class LibraryDedupeService:
         if vacuum:
             # VACUUM cannot run inside a transaction / with open writer cleanly on all sqlite builds.
             with self.database.connect() as conn:
+                prior_isolation = conn.isolation_level
                 conn.isolation_level = None
-                conn.execute('VACUUM')
+                try:
+                    conn.execute('VACUUM')
+                finally:
+                    conn.isolation_level = prior_isolation
             result.vacuumed = True
 
         return result
