@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields as dataclass_fields
 from pathlib import Path
 from typing import Any
 
 from ..application import ApplicationFacade
+from ..application.params import FullRecommendParams
 
 
 @dataclass(slots=True)
@@ -51,6 +52,8 @@ class SeedJobRequest:
     min_relative_bookmark_ratio: float | None = None
     sample_salt: int | str | None = None
     explore_ratio: float | None = None
+    skip_sync_if_fresh: bool = False
+    light_round: bool = False
     stop_words: tuple[str, ...] = field(default_factory=tuple)
     output_name: str | None = None
 
@@ -58,16 +61,10 @@ class SeedJobRequest:
     def from_mapping(cls, payload: dict[str, Any]) -> 'SeedJobRequest':
         if 'seed_user_id' not in payload:
             raise ValueError('manifest job missing seed_user_id')
-        stop_words = payload.get('stop_words') or []
-        if isinstance(stop_words, str):
-            stop_words = [stop_words]
-        _sample_modes = {'quality_first', 'quality', 'random', 'hydrated_first', 'hash', 'first'}
-        sample = _optional_text(payload.get('seed_following_sample')) or 'quality_first'
-        if sample not in _sample_modes:
-            sample = 'quality_first'
-        seed_sample = _optional_text(payload.get('seed_sample')) or 'quality_first'
-        if seed_sample not in _sample_modes:
-            seed_sample = 'quality_first'
+        # All recommendation knobs are parsed by the single shared definition;
+        # only job identity/token fields are handled here.
+        params = FullRecommendParams.from_mapping(payload)
+        shared = {f.name: getattr(params, f.name) for f in dataclass_fields(FullRecommendParams)}
         return cls(
             seed_user_id=int(payload['seed_user_id']),
             token_key=_optional_text(payload.get('token_key')),
@@ -75,43 +72,8 @@ class SeedJobRequest:
             access_token=_optional_text(payload.get('access_token')),
             following_refresh_token=_optional_text(payload.get('following_refresh_token')),
             following_token_key=_optional_text(payload.get('following_token_key')),
-            restrict=_optional_text(payload.get('restrict')) or 'public',
-            followed_artist_limit=int(payload.get('followed_artist_limit', 16)),
-            candidate_artist_limit=int(payload.get('candidate_artist_limit', 10)),
-            max_related_per_artist=int(payload.get('max_related_per_artist', 16)),
-            max_related_per_illust=int(payload.get('max_related_per_illust', 16)),
-            max_illusts_for_related=_optional_int(payload.get('max_illusts_for_related')),
-            max_seed_artists=int(payload.get('max_seed_artists', 600)),
-            max_candidate_artists=int(payload.get('max_candidate_artists', 2000)),
-            seed_sample=seed_sample,
-            enable_user_recommended=_optional_bool(payload.get('enable_user_recommended')) if payload.get('enable_user_recommended', None) is not None else True,
-            max_user_recommended=int(payload.get('max_user_recommended', 100)),
-            enable_tag_search=_optional_bool(payload.get('enable_tag_search')) if payload.get('enable_tag_search', None) is not None else True,
-            max_tag_search_tags=int(payload.get('max_tag_search_tags', 16)),
-            max_tag_search_illusts=int(payload.get('max_tag_search_illusts', 50)),
-            enable_seed_following=_optional_bool(payload.get('enable_seed_following')) if payload.get('enable_seed_following', None) is not None else True,
-            max_seed_following_artists=int(payload.get('max_seed_following_artists', 80)),
-            max_following_per_seed_artist=int(payload.get('max_following_per_seed_artist', 50)),
-            seed_following_sample=sample,
-            merge_candidates=_optional_bool(payload.get('merge_candidates')) if payload.get('merge_candidates', None) is not None else None,
-            top_n_tags=int(payload.get('top_n_tags', 40)),
-            top_n_pairs=int(payload.get('top_n_pairs', 30)),
-            profile_min_bookmarks=_optional_int(payload.get('profile_min_bookmarks')),
-            max_results=_optional_int(payload.get('max_results')),
-            allow_ai=_optional_bool(payload.get('allow_ai')),
-            allow_r18=_optional_bool(payload.get('allow_r18')),
-            min_bookmarks=_optional_int(payload.get('min_bookmarks')),
-            min_score=_optional_float(payload.get('min_score')),
-            diversity_per_tag=_optional_int(payload.get('diversity_per_tag')),
-            min_local_illusts=_optional_int(payload.get('min_local_illusts')),
-            require_tag_overlap=_optional_bool(payload.get('require_tag_overlap')) if payload.get('require_tag_overlap', None) is not None else None,
-            max_genre_fraction=_optional_float(payload.get('max_genre_fraction')),
-            max_ai_fraction=_optional_float(payload.get('max_ai_fraction')),
-            min_relative_bookmark_ratio=_optional_float(payload.get('min_relative_bookmark_ratio')),
-            sample_salt=payload.get('sample_salt'),
-            explore_ratio=_optional_float(payload.get('explore_ratio')),
-            stop_words=tuple(str(item) for item in stop_words if str(item).strip()),
             output_name=_optional_text(payload.get('output_name')),
+            **shared,
         )
 
 
@@ -181,6 +143,8 @@ class SeedJobRunner:
             min_relative_bookmark_ratio=request.min_relative_bookmark_ratio,
             sample_salt=request.sample_salt,
             explore_ratio=request.explore_ratio,
+            skip_sync_if_fresh=request.skip_sync_if_fresh,
+            light_round=request.light_round,
             stop_words=list(request.stop_words),
         )
         resolved_output = Path(output_path) if output_path is not None else self._default_output_path(request)

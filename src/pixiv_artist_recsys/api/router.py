@@ -6,6 +6,7 @@ from typing import Any, Mapping
 from urllib.parse import parse_qs, urlsplit
 
 from ..application import ApplicationFacade
+from ..application.params import FullRecommendParams
 from ..runtime import AppRuntime
 
 
@@ -178,7 +179,12 @@ class ApiRouter:
                 ),
             )
         if path == '/recommend/full':
-            recommendation = self.runtime.settings.recommendation
+            # All tunables parsed by the single shared definition — the API no
+            # longer drifts behind CLI/jobs when a knob is added.
+            params = FullRecommendParams.from_mapping(
+                dict(body or {}),
+                defaults=self.runtime.settings.recommendation,
+            )
             return ApiResponse(
                 status_code=200,
                 payload=self.application.full_recommend_payload(
@@ -186,36 +192,9 @@ class ApiRouter:
                     token_key=self._optional_body_text(body, 'token_key', default=None),
                     refresh_token=self._optional_body_text(body, 'refresh_token', default=None),
                     access_token=self._optional_body_text(body, 'access_token', default=None),
-                    restrict=self._optional_body_text(body, 'restrict', default='public') or 'public',
-                    followed_artist_limit=self._optional_body_int(body, 'followed_artist_limit', default=recommendation.followed_artist_limit) or recommendation.followed_artist_limit,
-                    candidate_artist_limit=self._optional_body_int(body, 'candidate_artist_limit', default=recommendation.candidate_artist_limit) or recommendation.candidate_artist_limit,
-                    max_related_per_artist=self._optional_body_int(body, 'max_related_per_artist', default=recommendation.max_related_per_artist) or recommendation.max_related_per_artist,
-                    max_related_per_illust=self._optional_body_int(body, 'max_related_per_illust', default=recommendation.max_related_per_illust) or recommendation.max_related_per_illust,
-                    max_illusts_for_related=self._optional_body_int(body, 'max_illusts_for_related', default=recommendation.max_illusts_for_related) or recommendation.max_illusts_for_related,
-                    max_seed_artists=self._optional_body_int(body, 'max_seed_artists', default=recommendation.max_seed_artists) or recommendation.max_seed_artists,
-                    max_candidate_artists=self._optional_body_int(body, 'max_candidate_artists', default=recommendation.max_candidate_artists) or recommendation.max_candidate_artists,
-                    seed_sample=self._optional_body_text(body, 'seed_sample', default=recommendation.seed_sample) or recommendation.seed_sample,
-                    enable_user_recommended=self._optional_body_bool(body, 'enable_user_recommended', default=True),
-                    max_user_recommended=self._optional_body_int(body, 'max_user_recommended', default=recommendation.max_user_recommended) or recommendation.max_user_recommended,
-                    enable_tag_search=self._optional_body_bool(body, 'enable_tag_search', default=True),
-                    max_tag_search_tags=self._optional_body_int(body, 'max_tag_search_tags', default=recommendation.max_tag_search_tags) or recommendation.max_tag_search_tags,
-                    max_tag_search_illusts=self._optional_body_int(body, 'max_tag_search_illusts', default=recommendation.max_tag_search_illusts) or recommendation.max_tag_search_illusts,
-                    enable_seed_following=self._optional_body_bool(body, 'enable_seed_following', default=recommendation.enable_seed_following),
-                    max_seed_following_artists=self._optional_body_int(body, 'max_seed_following_artists', default=recommendation.max_seed_following_artists) or recommendation.max_seed_following_artists,
-                    max_following_per_seed_artist=self._optional_body_int(body, 'max_following_per_seed_artist', default=recommendation.max_following_per_seed_artist) or recommendation.max_following_per_seed_artist,
-                    seed_following_sample=self._optional_body_text(body, 'seed_following_sample', default=recommendation.seed_following_sample) or recommendation.seed_following_sample,
-                    top_n_tags=self._optional_body_int(body, 'top_n_tags', default=20) or 20,
-                    top_n_pairs=self._optional_body_int(body, 'top_n_pairs', default=20) or 20,
-                    max_results=self._optional_body_int(body, 'max_results', default=recommendation.max_results),
-                    allow_ai=self._optional_body_bool(body, 'allow_ai', default=recommendation.allow_ai),
-                    allow_r18=self._optional_body_bool(body, 'allow_r18', default=recommendation.allow_r18),
-                    min_bookmarks=self._optional_body_int(body, 'min_bookmarks', default=recommendation.min_bookmarks),
-                    min_score=self._optional_body_float(body, 'min_score', default=recommendation.min_score),
-                    diversity_per_tag=self._optional_body_int(body, 'diversity_per_tag', default=recommendation.diversity_per_tag),
-                    min_local_illusts=self._optional_body_int(body, 'min_local_illusts', default=recommendation.min_local_illusts),
-                    require_tag_overlap=self._optional_body_bool(body, 'require_tag_overlap', default=recommendation.require_tag_overlap),
-                    max_genre_fraction=self._optional_body_float(body, 'max_genre_fraction', default=recommendation.max_genre_fraction),
-                    stop_words=self._optional_body_list(body, 'stop_words'),
+                    following_refresh_token=self._optional_body_text(body, 'following_refresh_token', default=None),
+                    following_token_key=self._optional_body_text(body, 'following_token_key', default=None),
+                    **params.to_kwargs(),
                 ),
             )
         if path == '/pixiv/following':
