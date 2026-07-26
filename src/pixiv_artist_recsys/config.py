@@ -37,7 +37,9 @@ class RecommendationConfig:
     # Goal = enlarge high-tier pool aggressively; quality gates stay high (no score-bar padding).
     max_candidates: int = 8000
     max_results: int = 500
-    freshness_days: int = 180
+    # Hydrate skip-if-fresh TTL: artists hydrated within this window (and holding
+    # enough local illusts) are not re-fetched. 0 disables skipping.
+    freshness_days: int = 10
     allow_ai: bool = False
     allow_r18: bool = False
     # Absolute floor; relative quality vs followed median is applied on top in ranker.

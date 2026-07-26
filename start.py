@@ -728,6 +728,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             min_relative_bookmark_ratio=float(preset.get('min_relative_bookmark_ratio', 0.35)),
             sample_salt=getattr(args, 'sample_salt', None),
             explore_ratio=float(preset.get('explore_ratio', 0.25)),
+            skip_sync_if_fresh=True,
             on_progress=tui,
         )
     except Exception as exc:  # noqa: BLE001 — surface live failures cleanly
@@ -973,6 +974,7 @@ def cmd_campaign(args: argparse.Namespace) -> int:
                 min_relative_bookmark_ratio=float(preset.get('min_relative_bookmark_ratio', 0.35)),
                 sample_salt=step['sample_salt'],
                 explore_ratio=float(step['explore_ratio'] or preset.get('explore_ratio', 0.30)),
+                skip_sync_if_fresh=True,
                 on_progress=tui,
             )
         except Exception as exc:  # noqa: BLE001

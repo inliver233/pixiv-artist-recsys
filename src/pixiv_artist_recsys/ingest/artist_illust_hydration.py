@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
+from typing import Callable
 
 from ..domain.models import Artist, Illust
 from ..pixiv import PixivAppApiClient
@@ -8,6 +10,9 @@ from ..pixiv.models import PixivIllustSummary
 from ..storage.repositories import RecommendationRepository
 from ..utils.progress import ProgressCallback, emit
 from ..utils.sampling import sample_ids
+
+# Recently hydrated artists are skipped (their portfolios barely move week to week).
+DEFAULT_HYDRATE_TTL_S = 10 * 86400.0
 
 
 @dataclass(slots=True)
@@ -18,12 +23,24 @@ class ArtistIllustHydrationResult:
     scope: str = 'followed'
     detail_fetches: int = 0
     list_only_saves: int = 0
+    skipped_fresh: int = 0
 
 
 class ArtistIllustHydrationService:
-    def __init__(self, *, repository: RecommendationRepository, pixiv_client: PixivAppApiClient) -> None:
+    def __init__(
+        self,
+        *,
+        repository: RecommendationRepository,
+        pixiv_client: PixivAppApiClient,
+        now_fn: Callable[[], float] | None = None,
+        freshness_max_age_s: float = DEFAULT_HYDRATE_TTL_S,
+        skip_min_local_illusts: int = 2,
+    ) -> None:
         self.repository = repository
         self.pixiv_client = pixiv_client
+        self.now_fn = now_fn or time.time
+        self.freshness_max_age_s = float(freshness_max_age_s)
+        self.skip_min_local_illusts = int(skip_min_local_illusts)
 
     def hydrate_followed_artists(
         self,
@@ -38,6 +55,7 @@ class ArtistIllustHydrationService:
     ) -> ArtistIllustHydrationResult:
         artists = self.repository.list_followed_artists(seed_user_id=seed_user_id)
         artist_ids = [artist.user_id for artist in artists]
+        artist_ids, skipped_fresh = self._drop_fresh(artist_ids, on_progress=on_progress, scope='followed')
         if max_artists is not None:
             quality_scores = self._quality_scores(artist_ids)
             artist_ids = sample_ids(
@@ -54,6 +72,7 @@ class ArtistIllustHydrationService:
             artist_user_ids=artist_ids,
             per_artist_limit=per_artist_limit,
             scope='followed',
+            skipped_fresh=skipped_fresh,
             on_progress=on_progress,
         )
 
@@ -76,6 +95,7 @@ class ArtistIllustHydrationService:
             if self.repository.fetch_artist(artist_user_id=artist_user_id) is None:
                 self.repository.upsert_artist(Artist(user_id=artist_user_id, name=f'artist-{artist_user_id}', is_followed=False))
             candidate_ids.append(artist_user_id)
+        candidate_ids, skipped_fresh = self._drop_fresh(candidate_ids, on_progress=on_progress, scope='candidate')
         if max_artists is not None:
             # Prefer multi-source / higher-weight candidates when quality scores available.
             quality_scores = self._candidate_priority_scores(seed_user_id=seed_user_id, candidate_ids=candidate_ids)
@@ -93,8 +113,38 @@ class ArtistIllustHydrationService:
             artist_user_ids=candidate_ids,
             per_artist_limit=per_artist_limit,
             scope='candidate',
+            skipped_fresh=skipped_fresh,
             on_progress=on_progress,
         )
+
+    def _drop_fresh(
+        self,
+        artist_ids: list[int],
+        *,
+        scope: str,
+        on_progress: ProgressCallback | None = None,
+    ) -> tuple[list[int], int]:
+        """Skip-if-fresh: remove recently hydrated artists so budget goes to stale ones."""
+        if self.freshness_max_age_s <= 0 or not artist_ids:
+            return artist_ids, 0
+        fresh = self.repository.fetch_fresh_artist_ids(
+            artist_user_ids=artist_ids,
+            max_age_s=self.freshness_max_age_s,
+            now_epoch=float(self.now_fn()),
+            min_local_illusts=self.skip_min_local_illusts,
+        )
+        if not fresh:
+            return artist_ids, 0
+        remaining = [artist_id for artist_id in artist_ids if artist_id not in fresh]
+        emit(
+            on_progress,
+            stage=f'hydrate_{scope}',
+            event='info',
+            message=f'skip-if-fresh: {len(fresh)} artists hydrated recently, {len(remaining)} remain',
+            scope=scope,
+            skipped_fresh=len(fresh),
+        )
+        return remaining, len(fresh)
 
     def _quality_scores(self, artist_ids: list[int]) -> dict[int, float]:
         max_bm = self.repository.fetch_max_bookmarks_by_artist(artist_user_ids=[int(a) for a in artist_ids])
@@ -123,6 +173,7 @@ class ArtistIllustHydrationService:
         artist_user_ids: list[int],
         per_artist_limit: int,
         scope: str,
+        skipped_fresh: int = 0,
         on_progress: ProgressCallback | None = None,
     ) -> ArtistIllustHydrationResult:
         stage = f'hydrate_{scope}'
@@ -155,6 +206,9 @@ class ArtistIllustHydrationService:
                     )
                     detail_fetches += 1
             with self.repository.transaction():
+                self.repository.mark_artist_hydrated(
+                    artist_user_id=artist_user_id, now_epoch=float(self.now_fn())
+                )
                 for summary in selected:
                     detail = details_by_illust.get(summary.illust_id)
                     if detail is None:
@@ -216,6 +270,7 @@ class ArtistIllustHydrationService:
             scope=scope,
             detail_fetches=detail_fetches,
             list_only_saves=list_only_saves,
+            skipped_fresh=skipped_fresh,
         )
 
     def _upsert_from_summary(self, summary: PixivIllustSummary) -> None:

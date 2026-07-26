@@ -53,6 +53,8 @@ class LiveRecommendationRequest:
     min_relative_bookmark_ratio: float = 0.35
     sample_salt: int | str | None = None
     explore_ratio: float = 0.25
+    # Skip full following resync when edges exist and last sync is younger than this (0 = always sync).
+    skip_sync_if_fresh_s: float = 0.0
     persist_run: bool = True
     mode: str = 'live-heuristic'
 
@@ -76,12 +78,22 @@ class LiveRecommendationPipeline:
         pixiv_client: PixivAppApiClient,
         following_pixiv_client: PixivAppApiClient | None = None,
         stop_words: set[str] | None = None,
+        hydrate_freshness_max_age_s: float | None = None,
+        min_local_illusts_for_skip: int = 2,
     ) -> None:
         self.repository = repository
         # Mother account (optional): only used for following sync to reduce risk.
         following_client = following_pixiv_client or pixiv_client
         self.following_sync_service = FollowingSyncService(repository=repository, pixiv_client=following_client)
-        self.hydration_service = ArtistIllustHydrationService(repository=repository, pixiv_client=pixiv_client)
+        hydration_kwargs = {}
+        if hydrate_freshness_max_age_s is not None:
+            hydration_kwargs['freshness_max_age_s'] = float(hydrate_freshness_max_age_s)
+        self.hydration_service = ArtistIllustHydrationService(
+            repository=repository,
+            pixiv_client=pixiv_client,
+            skip_min_local_illusts=min_local_illusts_for_skip,
+            **hydration_kwargs,
+        )
         self.profile_service = UserTasteProfileService(repository=repository, stop_words=stop_words)
         self.candidate_service = RelatedArtistCandidateService(repository=repository, pixiv_client=pixiv_client)
         self.rank_service = HeuristicArtistRankService(
@@ -116,6 +128,7 @@ class LiveRecommendationPipeline:
             restrict=request.restrict,
             allow_ai=request.allow_ai,
             allow_r18=request.allow_r18,
+            skip_if_fresh_s=request.skip_sync_if_fresh_s or None,
             on_progress=on_progress,
         )
 

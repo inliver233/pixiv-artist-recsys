@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
+from typing import Callable
 
 from ..domain.models import Artist, SeedUser
 from ..pixiv import PixivAppApiClient
 from ..storage.repositories import RecommendationRepository
 from ..utils.progress import ProgressCallback, emit
+
+# Following list changes by single digits per day; a same-day resync is pure tax.
+DEFAULT_SYNC_TTL_S = 24 * 3600.0
+# Edge floor below which skip-if-fresh never applies (protects first-run/broken DBs).
+MIN_EDGES_FOR_SKIP = 50
 
 
 @dataclass(slots=True)
@@ -13,12 +20,20 @@ class FollowingSyncResult:
     seed_user_id: int
     synced_count: int
     pages_fetched: int
+    skipped_fresh: bool = False
 
 
 class FollowingSyncService:
-    def __init__(self, *, repository: RecommendationRepository, pixiv_client: PixivAppApiClient) -> None:
+    def __init__(
+        self,
+        *,
+        repository: RecommendationRepository,
+        pixiv_client: PixivAppApiClient,
+        now_fn: Callable[[], float] | None = None,
+    ) -> None:
         self.repository = repository
         self.pixiv_client = pixiv_client
+        self.now_fn = now_fn or time.time
 
     def sync_following(
         self,
@@ -28,8 +43,25 @@ class FollowingSyncService:
         restrict: str = 'public',
         allow_ai: bool | None = None,
         allow_r18: bool | None = None,
+        skip_if_fresh_s: float | None = None,
         on_progress: ProgressCallback | None = None,
     ) -> FollowingSyncResult:
+        if skip_if_fresh_s is not None and skip_if_fresh_s > 0:
+            last_sync = self.repository.get_last_following_sync_epoch(seed_user_id=seed_user_id)
+            edges = self.repository.count_following_edges(seed_user_id=seed_user_id)
+            if edges >= MIN_EDGES_FOR_SKIP and last_sync > 0 and (float(self.now_fn()) - last_sync) < float(skip_if_fresh_s):
+                emit(
+                    on_progress,
+                    stage='following_sync',
+                    event='done',
+                    message=f'skip-if-fresh: {edges} edges, last sync {int(float(self.now_fn()) - last_sync)}s ago',
+                    synced_count=0,
+                    pages_fetched=0,
+                    skipped_fresh=True,
+                )
+                return FollowingSyncResult(
+                    seed_user_id=seed_user_id, synced_count=0, pages_fetched=0, skipped_fresh=True
+                )
         existing = self.repository.fetch_seed_user(user_id=seed_user_id)
         resolved_allow_ai = existing.allow_ai if allow_ai is None and existing is not None else bool(allow_ai)
         resolved_allow_r18 = existing.allow_r18 if allow_r18 is None and existing is not None else bool(allow_r18)
@@ -93,6 +125,7 @@ class FollowingSyncService:
                     break
                 offset += len(page.items)
 
+        self.repository.set_last_following_sync_epoch(seed_user_id=seed_user_id, now_epoch=float(self.now_fn()))
         emit(
             on_progress,
             stage='following_sync',

@@ -20,7 +20,8 @@ SCHEMA_STATEMENTS = [
         refresh_token_ref TEXT NOT NULL,
         allow_ai INTEGER NOT NULL DEFAULT 0,
         allow_r18 INTEGER NOT NULL DEFAULT 0,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        last_following_sync_epoch INTEGER NOT NULL DEFAULT 0
     )
     """,
     """
@@ -41,7 +42,8 @@ SCHEMA_STATEMENTS = [
         account TEXT NOT NULL DEFAULT '',
         is_followed INTEGER NOT NULL DEFAULT 0,
         profile_image_url TEXT NOT NULL DEFAULT '',
-        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        hydrated_at_epoch INTEGER NOT NULL DEFAULT 0
     )
     """,
     """
@@ -57,6 +59,7 @@ SCHEMA_STATEMENTS = [
         x_restrict INTEGER NOT NULL DEFAULT 0,
         illust_type TEXT NOT NULL DEFAULT '',
         page_count INTEGER NOT NULL DEFAULT 1,
+        fetched_at_epoch INTEGER NOT NULL DEFAULT 0,
         FOREIGN KEY(user_id) REFERENCES artists(user_id)
     )
     """,

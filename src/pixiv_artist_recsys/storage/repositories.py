@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from contextlib import contextmanager
 from dataclasses import asdict
 from typing import Iterator
@@ -234,9 +235,9 @@ class RecommendationRepository:
                 """
                 INSERT INTO illusts (
                     illust_id, user_id, title, create_date, total_bookmarks, total_view, total_comments,
-                    ai_type, x_restrict, illust_type, page_count
+                    ai_type, x_restrict, illust_type, page_count, fetched_at_epoch
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(illust_id) DO UPDATE SET
                     user_id=excluded.user_id,
                     title=excluded.title,
@@ -247,7 +248,8 @@ class RecommendationRepository:
                     ai_type=excluded.ai_type,
                     x_restrict=excluded.x_restrict,
                     illust_type=excluded.illust_type,
-                    page_count=excluded.page_count
+                    page_count=excluded.page_count,
+                    fetched_at_epoch=excluded.fetched_at_epoch
                 """,
                 (
                     illust.illust_id,
@@ -261,6 +263,7 @@ class RecommendationRepository:
                     illust.x_restrict,
                     illust.illust_type or '',
                     max(1, int(illust.page_count or 1)),
+                    int(time.time()),
                 ),
             )
 
@@ -384,6 +387,65 @@ class RecommendationRepository:
             )
             for r in rows
         ]
+
+    def mark_artist_hydrated(self, *, artist_user_id: int, now_epoch: float) -> None:
+        with self.database.connect() as conn:
+            conn.execute(
+                "UPDATE artists SET hydrated_at_epoch = ? WHERE user_id = ?",
+                (int(now_epoch), int(artist_user_id)),
+            )
+
+    def fetch_fresh_artist_ids(
+        self,
+        *,
+        artist_user_ids: list[int],
+        max_age_s: float,
+        now_epoch: float,
+        min_local_illusts: int = 1,
+    ) -> set[int]:
+        """Artists hydrated within max_age_s AND holding >= min_local_illusts locally."""
+        if not artist_user_ids or max_age_s <= 0:
+            return set()
+        cutoff = int(now_epoch - max_age_s)
+        fresh: set[int] = set()
+        with self.database.connect() as conn:
+            for chunk in _chunked([int(a) for a in artist_user_ids]):
+                placeholders = ','.join(['?'] * len(chunk))
+                rows = conn.execute(
+                    f"""
+                    SELECT a.user_id
+                    FROM artists a
+                    WHERE a.user_id IN ({placeholders})
+                      AND a.hydrated_at_epoch >= ?
+                      AND (SELECT COUNT(*) FROM illusts i WHERE i.user_id = a.user_id) >= ?
+                    """,
+                    (*chunk, cutoff, max(1, int(min_local_illusts))),
+                ).fetchall()
+                fresh.update(int(r['user_id']) for r in rows)
+        return fresh
+
+    def get_last_following_sync_epoch(self, *, seed_user_id: int) -> int:
+        with self.database.connect() as conn:
+            row = conn.execute(
+                "SELECT last_following_sync_epoch FROM seed_users WHERE user_id = ?",
+                (seed_user_id,),
+            ).fetchone()
+        return int(row['last_following_sync_epoch']) if row is not None else 0
+
+    def set_last_following_sync_epoch(self, *, seed_user_id: int, now_epoch: float) -> None:
+        with self.database.connect() as conn:
+            conn.execute(
+                "UPDATE seed_users SET last_following_sync_epoch = ? WHERE user_id = ?",
+                (int(now_epoch), seed_user_id),
+            )
+
+    def count_following_edges(self, *, seed_user_id: int) -> int:
+        with self.database.connect() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS c FROM seed_user_following_artists WHERE seed_user_id = ?",
+                (seed_user_id,),
+            ).fetchone()
+        return int(row['c'])
 
     def fetch_max_bookmarks_by_artist(self, *, artist_user_ids: list[int] | None = None) -> dict[int, int]:
         """{artist_user_id: max(total_bookmarks)} in one aggregate query.

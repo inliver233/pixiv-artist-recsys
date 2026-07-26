@@ -98,6 +98,62 @@ class HydrationTests(unittest.TestCase):
             self.assertEqual(sorted(repo.fetch_artist_tags(artist_user_id=1001)), ['tag-a', 'tag-b'])
 
 
+class SkipIfFreshTests(unittest.TestCase):
+    def test_recently_hydrated_artist_is_skipped_within_ttl(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = RecommendationRepository(SQLiteDatabase(Path(tmpdir) / 'fresh.sqlite3'))
+            repo.initialize()
+            repo.upsert_seed_user(SeedUser(user_id=7, refresh_token_ref='masked:token'))
+            for artist_id in (1001, 1002):
+                repo.upsert_artist(Artist(user_id=artist_id, name=f'artist-{artist_id}', is_followed=True))
+                repo.upsert_following_edge(seed_user_id=7, artist_user_id=artist_id)
+
+            clock = {'now': 1_000_000.0}
+            client = FakeHydrationClient(list_tags=['tag-a'])
+            service = ArtistIllustHydrationService(
+                repository=repo,
+                pixiv_client=client,
+                now_fn=lambda: clock['now'],
+                freshness_max_age_s=7 * 86400.0,
+                skip_min_local_illusts=1,
+            )
+            first = service.hydrate_followed_artists(seed_user_id=7)
+            self.assertEqual(first.artists_processed, 2)
+            self.assertEqual(first.skipped_fresh, 0)
+
+            # Within TTL both artists are fresh: nothing re-fetched.
+            clock['now'] += 3600.0
+            second = service.hydrate_followed_artists(seed_user_id=7)
+            self.assertEqual(second.artists_processed, 0)
+            self.assertEqual(second.skipped_fresh, 2)
+
+            # After TTL expiry hydration resumes.
+            clock['now'] += 8 * 86400.0
+            third = service.hydrate_followed_artists(seed_user_id=7)
+            self.assertEqual(third.artists_processed, 2)
+
+    def test_fresh_artist_without_enough_local_illusts_not_skipped(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = RecommendationRepository(SQLiteDatabase(Path(tmpdir) / 'fresh-thin.sqlite3'))
+            repo.initialize()
+            repo.upsert_seed_user(SeedUser(user_id=7, refresh_token_ref='masked:token'))
+            repo.upsert_artist(Artist(user_id=1001, name='artist-1', is_followed=True))
+            repo.upsert_following_edge(seed_user_id=7, artist_user_id=1001)
+            # Marked hydrated recently but has zero local illusts → must NOT be skipped.
+            repo.mark_artist_hydrated(artist_user_id=1001, now_epoch=1_000_000.0)
+
+            service = ArtistIllustHydrationService(
+                repository=repo,
+                pixiv_client=FakeHydrationClient(list_tags=['tag-a']),
+                now_fn=lambda: 1_000_100.0,
+                freshness_max_age_s=7 * 86400.0,
+                skip_min_local_illusts=1,
+            )
+            result = service.hydrate_followed_artists(seed_user_id=7)
+            self.assertEqual(result.artists_processed, 1)
+            self.assertEqual(result.skipped_fresh, 0)
+
+
 class CandidateHydrationTests(unittest.TestCase):
     def test_hydrate_candidate_artists_skips_followed_and_deduplicates(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

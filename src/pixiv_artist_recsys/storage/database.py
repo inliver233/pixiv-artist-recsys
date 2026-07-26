@@ -28,9 +28,23 @@ def _migrate_v1(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_illusts_user_id ON illusts(user_id)")
 
 
+def _migrate_v2(conn: sqlite3.Connection) -> None:
+    """Freshness columns for hydrate/sync skip-if-fresh (0 = never → always eligible)."""
+    artist_cols = {str(row[1]) for row in conn.execute("PRAGMA table_info(artists)").fetchall()}
+    if 'hydrated_at_epoch' not in artist_cols:
+        conn.execute("ALTER TABLE artists ADD COLUMN hydrated_at_epoch INTEGER NOT NULL DEFAULT 0")
+    illust_cols = {str(row[1]) for row in conn.execute("PRAGMA table_info(illusts)").fetchall()}
+    if 'fetched_at_epoch' not in illust_cols:
+        conn.execute("ALTER TABLE illusts ADD COLUMN fetched_at_epoch INTEGER NOT NULL DEFAULT 0")
+    seed_cols = {str(row[1]) for row in conn.execute("PRAGMA table_info(seed_users)").fetchall()}
+    if 'last_following_sync_epoch' not in seed_cols:
+        conn.execute("ALTER TABLE seed_users ADD COLUMN last_following_sync_epoch INTEGER NOT NULL DEFAULT 0")
+
+
 # Ordered schema migrations tracked via PRAGMA user_version; each runs at most once.
 MIGRATIONS: tuple[tuple[int, Callable[[sqlite3.Connection], None]], ...] = (
     (1, _migrate_v1),
+    (2, _migrate_v2),
 )
 
 

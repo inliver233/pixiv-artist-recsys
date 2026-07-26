@@ -45,6 +45,43 @@ class IngestTests(unittest.TestCase):
             self.assertFalse(seed_user.allow_ai)
             self.assertFalse(seed_user.allow_r18)
 
+    def test_following_sync_skip_if_fresh(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repository = RecommendationRepository(SQLiteDatabase(Path(tmpdir) / 'ingest-fresh.sqlite3'))
+            repository.initialize()
+            client = FakeFollowingClient()
+            clock = {'now': 1_000_000.0}
+            service = FollowingSyncService(
+                repository=repository, pixiv_client=client, now_fn=lambda: clock['now']
+            )
+
+            # First sync always runs and stamps the epoch.
+            first = service.sync_following(seed_user_id=7, refresh_token_ref='masked:token', skip_if_fresh_s=86400.0)
+            self.assertFalse(first.skipped_fresh)
+            self.assertEqual(first.synced_count, 3)
+
+            # Few edges (< MIN_EDGES_FOR_SKIP) → never skips even when fresh.
+            clock['now'] += 3600.0
+            calls_before = len(client.calls)
+            second = service.sync_following(seed_user_id=7, refresh_token_ref='masked:token', skip_if_fresh_s=86400.0)
+            self.assertFalse(second.skipped_fresh)
+            self.assertGreater(len(client.calls), calls_before)
+
+            # With enough edges and a fresh stamp, the sync is skipped entirely.
+            from pixiv_artist_recsys.domain.models import Artist
+            for artist_id in range(2000, 2060):
+                repository.upsert_artist(Artist(user_id=artist_id, name=f'a-{artist_id}', is_followed=True))
+                repository.upsert_following_edge(seed_user_id=7, artist_user_id=artist_id)
+            calls_before = len(client.calls)
+            third = service.sync_following(seed_user_id=7, refresh_token_ref='masked:token', skip_if_fresh_s=86400.0)
+            self.assertTrue(third.skipped_fresh)
+            self.assertEqual(len(client.calls), calls_before)
+
+            # After the freshness window the sync runs again.
+            clock['now'] += 2 * 86400.0
+            fourth = service.sync_following(seed_user_id=7, refresh_token_ref='masked:token', skip_if_fresh_s=86400.0)
+            self.assertFalse(fourth.skipped_fresh)
+
     def test_following_sync_preserves_existing_seed_preferences(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             repository = RecommendationRepository(SQLiteDatabase(Path(tmpdir) / 'ingest-prefs.sqlite3'))

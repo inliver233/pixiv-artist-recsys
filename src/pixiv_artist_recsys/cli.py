@@ -179,6 +179,12 @@ def _add_recommendation_args(parser: argparse.ArgumentParser, *, settings, inclu
         default=0.25,
         help='Quality-first explore slice ratio (0–0.5) for seed sampling diversity',
     )
+    parser.add_argument(
+        '--skip-sync-if-fresh',
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help='Skip full following resync when edges exist and last sync is < 24h old',
+    )
     parser.add_argument('--stop-word', action='append', default=[])
     if include_output:
         parser.add_argument('--output')
@@ -719,6 +725,7 @@ def cmd_full_recommend(
     min_relative_bookmark_ratio: float | None = None,
     sample_salt: int | str | None = None,
     explore_ratio: float | None = None,
+    skip_sync_if_fresh: bool = False,
     stop_words: list[str],
 ) -> int:
     _print_payload(
@@ -764,6 +771,7 @@ def cmd_full_recommend(
             min_relative_bookmark_ratio=min_relative_bookmark_ratio,
             sample_salt=sample_salt,
             explore_ratio=explore_ratio,
+            skip_sync_if_fresh=skip_sync_if_fresh,
             stop_words=stop_words,
         )
     )
@@ -1179,6 +1187,7 @@ def main(argv: list[str] | None = None) -> int:
                 min_relative_bookmark_ratio=getattr(args, 'min_relative_bookmark_ratio', None),
                 sample_salt=getattr(args, 'sample_salt', None),
                 explore_ratio=getattr(args, 'explore_ratio', None),
+                skip_sync_if_fresh=bool(getattr(args, 'skip_sync_if_fresh', False)),
                 stop_words=args.stop_word,
             )
         if args.command == 'run-seed-job':

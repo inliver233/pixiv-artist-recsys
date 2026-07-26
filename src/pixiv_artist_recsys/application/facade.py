@@ -535,6 +535,7 @@ class ApplicationFacade:
         min_relative_bookmark_ratio: float | None = None,
         sample_salt: int | str | None = None,
         explore_ratio: float | None = None,
+        skip_sync_if_fresh: bool = False,
         stop_words: list[str] | set[str] | None = None,
         on_progress: ProgressCallback | None = None,
     ) -> dict[str, Any]:
@@ -573,6 +574,8 @@ class ApplicationFacade:
             pixiv_client=pixiv_client,
             following_pixiv_client=following_pixiv_client,
             stop_words=set(stop_words or []),
+            hydrate_freshness_max_age_s=float(settings.freshness_days) * 86400.0,
+            min_local_illusts_for_skip=resolved_min_local,
         ).run(
             LiveRecommendationRequest(
                 seed_user_id=seed_user_id,
@@ -615,6 +618,7 @@ class ApplicationFacade:
                 min_relative_bookmark_ratio=resolved_relative,
                 sample_salt=sample_salt,
                 explore_ratio=0.25 if explore_ratio is None else float(explore_ratio),
+                skip_sync_if_fresh_s=24 * 3600.0 if skip_sync_if_fresh else 0.0,
             ),
             on_progress=on_progress,
         )
