@@ -58,7 +58,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         'min_score': 0.24,
         'diversity_per_tag': 5,
         'max_ai_fraction': 0.15,
-        'min_relative_bookmark_ratio': 0.30,
+        'min_relative_bookmark_ratio': 0.45,
         'explore_ratio': 0.30,
     },
     'daily': {
@@ -85,7 +85,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         'min_score': 0.24,
         'diversity_per_tag': 6,
         'max_ai_fraction': 0.12,
-        'min_relative_bookmark_ratio': 0.35,
+        'min_relative_bookmark_ratio': 0.45,
         'explore_ratio': 0.30,
     },
     'deep': {
@@ -112,7 +112,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         'min_score': 0.24,
         'diversity_per_tag': 8,
         'max_ai_fraction': 0.12,
-        'min_relative_bookmark_ratio': 0.38,
+        'min_relative_bookmark_ratio': 0.45,
         'explore_ratio': 0.32,
     },
     'mega': {
@@ -139,7 +139,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         'min_score': 0.24,
         'diversity_per_tag': 12,
         'max_ai_fraction': 0.12,
-        'min_relative_bookmark_ratio': 0.35,
+        'min_relative_bookmark_ratio': 0.45,
         'explore_ratio': 0.35,
     },
     'campaign': {
@@ -166,7 +166,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         'min_score': 0.24,
         'diversity_per_tag': 10,
         'max_ai_fraction': 0.12,
-        'min_relative_bookmark_ratio': 0.35,
+        'min_relative_bookmark_ratio': 0.45,
         'explore_ratio': 0.30,
     },
 }

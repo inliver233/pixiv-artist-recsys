@@ -156,8 +156,17 @@ class LeaveOneOutEvaluator:
         Evidence uses a fixed neutral row (user_related, weight 1.0) so every
         holdout artist enters the ranker on identical footing; the metric then
         reflects taste/quality scoring, not evidence-source luck.
+
+        seed_artist_following evidence is stripped for ALL candidates: holdout
+        artists structurally cannot have co-follow rows (recall excluded them
+        while they were followed), so leaving the signal live for ordinary
+        candidates would bias the metric against every holdout artist.
         """
         with sandbox.transaction() as conn:
+            conn.execute(
+                "DELETE FROM artist_candidates WHERE seed_user_id = ? AND source_type = 'seed_artist_following'",
+                (seed_user_id,),
+            )
             for artist_id in artist_ids:
                 conn.execute(
                     "DELETE FROM seed_user_following_artists WHERE seed_user_id = ? AND artist_user_id = ?",

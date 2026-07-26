@@ -154,4 +154,14 @@ SCHEMA_STATEMENTS = [
         result_user_ids TEXT NOT NULL DEFAULT '[]'
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS recommended_history (
+        seed_user_id INTEGER NOT NULL,
+        artist_user_id INTEGER NOT NULL,
+        first_shown_epoch INTEGER NOT NULL,
+        last_shown_epoch INTEGER NOT NULL,
+        rounds_shown INTEGER NOT NULL DEFAULT 1,
+        PRIMARY KEY(seed_user_id, artist_user_id)
+    )
+    """,
 ]

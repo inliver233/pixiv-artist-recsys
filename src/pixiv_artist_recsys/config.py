@@ -55,9 +55,10 @@ class RecommendationConfig:
     max_genre_fraction: float = 0.34
     # Artist-level AI: drop if fraction of local works with ai_type!=0 exceeds this (when allow_ai=False).
     max_ai_fraction: float = 0.12
-    # Relative quality: candidate max bookmarks must reach ratio * followed median of max bookmarks.
+    # Relative quality: candidate max bookmarks must reach ratio * followed median of max
+    # bookmarks, AND candidate median must reach ratio * followed P40 (anti single-viral).
     # 0 disables relative gate (absolute min_bookmarks only).
-    min_relative_bookmark_ratio: float = 0.35
+    min_relative_bookmark_ratio: float = 0.45
     # Profile: only use followed artists whose local max bookmarks >= this (0 = all hydrated).
     profile_min_bookmarks: int = 200
     # Sampling defaults used by CLI / full-recommend when not overridden.

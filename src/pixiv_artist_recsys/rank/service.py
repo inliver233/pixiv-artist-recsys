@@ -9,38 +9,13 @@ from ..domain.models import RecommendationItem
 from ..storage.repositories import RecommendationRepository
 
 
-# Exact-match blocks after normalize (lower + spaces→underscore).
+# Exact-match hard blocks after normalize (lower + spaces→underscore).
+# AI markers only: one AI-tagged work is a deliberate artist choice. Genre
+# families (manga/furry/BL) are NOT hard-blocked — a single tagged work used
+# to erase the whole artist (ケモ even matched ケモミミ); they are scored as
+# per-illust fractions via _GENRE_FAMILIES + max_genre_fraction instead.
 DEFAULT_BLOCKED_TAGS: frozenset[str] = frozenset(
     {
-        # manga / comic
-        '漫画',
-        'manga',
-        '創作漫画',
-        'オリジナル漫画',
-        '漫画作品',
-        '4コマ',
-        '4koma',
-        'コミック',
-        'comic',
-        # furry / kemono
-        'ケモノ',
-        'ケモナー',
-        'furry',
-        'furrys',
-        '獣人',
-        '獣化',
-        'anthro',
-        'ケモノ化',
-        # BL / yaoi-oriented
-        'bl',
-        '創作bl',
-        '腐',
-        '腐向け',
-        'やおい',
-        'yaoi',
-        'boys_love',
-        'ボーイズラブ',
-        # AI generation markers (artist-level filter also uses ai_type)
         'ai',
         'ai生成',
         'ai-generated',
@@ -58,25 +33,9 @@ DEFAULT_BLOCKED_TAGS: frozenset[str] = frozenset(
     }
 )
 
-# Substring markers for composite tags like ケモノシスマイク / 創作漫画作品.
+# Substring hard blocks for composite AI tags (AIイラスト部 etc.). Genre
+# substrings moved to the soft genre-fraction path.
 DEFAULT_BLOCKED_SUBSTRINGS: tuple[str, ...] = (
-    '漫画',
-    'manga',
-    '4コマ',
-    '4koma',
-    'コミック',
-    'comic',
-    'ケモノ',
-    'ケモ',
-    'furry',
-    'anthro',
-    '獣人',
-    '獣化',
-    '創作bl',
-    'ボーイズラブ',
-    'boys_love',
-    'やおい',
-    'yaoi',
     'ai生成',
     'ai-generated',
     'aigenerated',
@@ -91,10 +50,11 @@ DEFAULT_BLOCKED_SUBSTRINGS: tuple[str, ...] = (
 )
 
 # Soft genre families for purity scoring (fraction of local illusts that hit family).
+# Markers match as substrings — no bare 'ケモ' (hits ケモミミ) or 'bl' (hits blue_hair).
 _GENRE_FAMILIES: dict[str, tuple[str, ...]] = {
     'manga': ('漫画', 'manga', '4コマ', '4koma', 'コミック', 'comic'),
-    'furry': ('ケモノ', 'ケモ', 'furry', 'anthro', '獣人', '獣化'),
-    'bl': ('創作bl', 'ボーイズラブ', 'boys_love', 'やおい', 'yaoi', '腐向け'),
+    'furry': ('ケモノ', 'ケモナー', 'furry', 'anthro', '獣人', '獣化'),
+    'bl': ('創作bl', 'ボーイズラブ', 'boys_love', 'やおい', 'yaoi', '腐向け', '腐向'),
 }
 
 # Source reliability used when aggregating evidence (following is broad/noisy).
@@ -126,7 +86,10 @@ class HeuristicArtistRankService:
         max_genre_fraction: float = 0.34,
         max_manga_type_fraction: float = 0.5,
         max_ai_fraction: float = 0.15,
-        min_relative_bookmark_ratio: float = 0.35,
+        min_relative_bookmark_ratio: float = 0.45,
+        taste_floor: float = 0.12,
+        exposure_decay: float = 0.9,
+        exposure_floor: float = 0.5,
     ) -> None:
         self.repository = repository
         raw = blocked_tags if blocked_tags is not None else DEFAULT_BLOCKED_TAGS
@@ -137,6 +100,13 @@ class HeuristicArtistRankService:
         self.max_manga_type_fraction = float(max_manga_type_fraction)
         self.max_ai_fraction = float(max_ai_fraction)
         self.min_relative_bookmark_ratio = float(min_relative_bookmark_ratio)
+        # Hard taste gate: evidence+quality alone must not lift "not your taste"
+        # artists over the bar (Q-6). 0 disables.
+        self.taste_floor = float(taste_floor)
+        # Repeat-exposure downrank: artists shown k rounds without a follow get
+        # score * ((1-floor)*decay^k + floor) — x-algorithm position decay shape.
+        self.exposure_decay = float(exposure_decay)
+        self.exposure_floor = float(exposure_floor)
 
     def rank_from_store(
         self,
@@ -175,10 +145,18 @@ class HeuristicArtistRankService:
         followed_ids = set(self.repository.list_following_artist_ids(seed_user_id=seed_user_id))
         rejected_ids = set(self.repository.list_feedback_artist_ids(seed_user_id=seed_user_id, actions=('dislike', 'block')))
         followed_quality_median = self._followed_max_bookmark_median(followed_ids)
+        # P40 of followed per-artist maxima anchors the median-based relative
+        # gate: the candidate's MEDIAN work must clear ratio*P40, so a single
+        # viral piece no longer carries a mid portfolio over the bar (Q-6).
+        followed_p40 = self._followed_max_bookmark_percentile(followed_ids, fraction=0.40)
         relative_min_bookmarks = 0
         if relative_ratio > 0 and followed_quality_median > 0:
             relative_min_bookmarks = int(math.floor(followed_quality_median * relative_ratio))
         effective_min_bookmarks = max(int(min_total_bookmarks or 0), relative_min_bookmarks)
+        median_gate = 0.0
+        if relative_ratio > 0 and followed_p40 > 0:
+            median_gate = followed_p40 * relative_ratio
+        exposure_rounds = self.repository.fetch_recommendation_exposure(seed_user_id=seed_user_id)
 
         profile = dict(self.repository.fetch_user_taste_profile(seed_user_id=seed_user_id))
         pair_weights = {
@@ -188,12 +166,18 @@ class HeuristicArtistRankService:
         }
         negative_profile = dict(self.repository.fetch_user_negative_profile(seed_user_id=seed_user_id))
         evidence_map: dict[int, list[tuple[str, str, float, str]]] = defaultdict(list)
+        # co-follow: how many of MY followed artists follow this candidate —
+        # distinct seed_artist_following source_keys count exactly that (Q-2).
+        cofollow_keys: dict[int, set[str]] = defaultdict(set)
         for candidate_user_id, source_type, source_key, weight, detail in self.repository.fetch_artist_candidates(
             seed_user_id=seed_user_id
         ):
             if candidate_user_id in followed_ids or candidate_user_id in rejected_ids:
                 continue
             evidence_map[candidate_user_id].append((source_type, source_key, weight, detail))
+            if source_type == 'seed_artist_following':
+                cofollow_keys[candidate_user_id].add(str(source_key))
+        max_cofollow = max((len(keys) for keys in cofollow_keys.values()), default=0)
 
         # Batch prefetch artists + illusts for all candidates (kills the 3-query-per-candidate N+1).
         candidate_ids = list(evidence_map.keys())
@@ -226,6 +210,12 @@ class HeuristicArtistRankService:
                 continue
             if not filtered_illusts and effective_min_bookmarks > 0:
                 continue
+            if median_gate > 0 and filtered_illusts:
+                candidate_median_bm = self._median(
+                    [max(0, int(illust.total_bookmarks)) for illust in filtered_illusts[:8]]
+                )
+                if candidate_median_bm < median_gate:
+                    continue
 
             illust_ids = [illust.illust_id for illust in filtered_illusts]
             tag_map = self.repository.fetch_illust_tag_map(illust_ids=illust_ids)
@@ -275,19 +265,32 @@ class HeuristicArtistRankService:
                 continue
             if taste_score < min_tag_score:
                 continue
+            if self.taste_floor > 0 and require_tag_overlap and taste_score < self.taste_floor:
+                continue
 
             evidence_score = self._evidence_score(evidences)
             quality_score, quality_meta = self._quality_score(filtered_illusts)
             purity_score = self._purity_score(genre_fracs, type_frac)
+            cofollow_score = 0.0
+            if max_cofollow > 0:
+                cofollow_score = math.log1p(len(cofollow_keys.get(candidate_user_id, ()))) / math.log1p(max_cofollow)
 
-            # All components calibrated to ~[0, 1]. Weights sum to 1.0 before penalties.
+            # All components calibrated to ~[0, 1]. co-follow is the strongest
+            # collaborative signal (candidate followed by several of my follows);
+            # evidence demoted to a confirmation role (Q-2/Q-6 reweighting).
             final_score = (
-                0.50 * taste_score
-                + 0.20 * evidence_score
+                0.47 * taste_score
+                + 0.20 * cofollow_score
                 + 0.15 * quality_score
-                + 0.15 * purity_score
+                + 0.10 * purity_score
+                + 0.08 * evidence_score
                 - 0.45 * min(1.0, negative_tag_score)
             )
+            shown_rounds = int(exposure_rounds.get(candidate_user_id, 0))
+            if shown_rounds > 0 and self.exposure_decay < 1.0:
+                # (1-floor)*decay^n + floor — repeatedly surfaced but never
+                # followed artists sink gradually instead of camping the list.
+                final_score *= (1.0 - self.exposure_floor) * (self.exposure_decay ** shown_rounds) + self.exposure_floor
             if final_score < min_score:
                 continue
 
@@ -310,6 +313,13 @@ class HeuristicArtistRankService:
             reasons = [f'evidence:{source_type}' for source_type in source_types[:4]]
             if top_tags:
                 reasons.append(f"tags:{','.join(top_tags)}")
+            if cofollow_score > 0:
+                reasons.append(
+                    f'cofollow:count={len(cofollow_keys.get(candidate_user_id, ()))}'
+                    f',score={round(cofollow_score, 4)}'
+                )
+            if shown_rounds > 0:
+                reasons.append(f'exposure:rounds_shown={shown_rounds}')
             if taste_score > 0:
                 reasons.append(f'taste:score={round(taste_score, 4)}')
                 if taste_meta.get('cosine') is not None:
@@ -510,6 +520,15 @@ class HeuristicArtistRankService:
         if len(ordered) % 2 == 1:
             return float(ordered[mid])
         return (ordered[mid - 1] + ordered[mid]) / 2.0
+
+    def _followed_max_bookmark_percentile(self, followed_ids: set[int], *, fraction: float) -> float:
+        """Percentile of per-followed-artist max bookmarks (hydrated only)."""
+        max_bm = self.repository.fetch_max_bookmarks_by_artist(artist_user_ids=list(followed_ids))
+        maxima = sorted(int(v) for v in max_bm.values())
+        if not maxima:
+            return 0.0
+        index = min(len(maxima) - 1, max(0, int(round((len(maxima) - 1) * float(fraction)))))
+        return float(maxima[index])
 
     def _followed_max_bookmark_median(self, followed_ids: set[int]) -> float:
         """Median of per-followed-artist max bookmarks (local hydrate only).

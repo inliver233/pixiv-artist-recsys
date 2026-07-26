@@ -388,6 +388,62 @@ class RecommendationRepository:
             for r in rows
         ]
 
+    def fetch_following_first_seen(self, *, seed_user_id: int) -> dict[int, str]:
+        """{artist_user_id: first_seen_at} for profile time decay."""
+        with self.database.connect() as conn:
+            rows = conn.execute(
+                "SELECT artist_user_id, first_seen_at FROM seed_user_following_artists WHERE seed_user_id = ?",
+                (seed_user_id,),
+            ).fetchall()
+        return {int(r['artist_user_id']): str(r['first_seen_at']) for r in rows}
+
+    def fetch_artist_tags_for_artists(self, *, artist_user_ids: list[int]) -> dict[int, list[str]]:
+        """Batch fetch_artist_tags: {artist_user_id: [tags]}."""
+        result: dict[int, list[str]] = {int(a): [] for a in artist_user_ids}
+        if not artist_user_ids:
+            return result
+        with self.database.connect() as conn:
+            for chunk in _chunked([int(a) for a in artist_user_ids]):
+                placeholders = ','.join(['?'] * len(chunk))
+                rows = conn.execute(
+                    f"""
+                    SELECT i.user_id, t.tag
+                    FROM illust_tags t
+                    JOIN illusts i ON i.illust_id = t.illust_id
+                    WHERE i.user_id IN ({placeholders})
+                    ORDER BY i.user_id, t.tag
+                    """,
+                    tuple(chunk),
+                ).fetchall()
+                for r in rows:
+                    result[int(r['user_id'])].append(str(r['tag']))
+        return result
+
+    def record_recommendation_exposure(self, *, seed_user_id: int, artist_user_ids: list[int], now_epoch: float) -> None:
+        """Bump rounds_shown for every artist surfaced in a persisted run."""
+        if not artist_user_ids:
+            return
+        with self.database.connect() as conn:
+            conn.executemany(
+                """
+                INSERT INTO recommended_history (seed_user_id, artist_user_id, first_shown_epoch, last_shown_epoch, rounds_shown)
+                VALUES (?, ?, ?, ?, 1)
+                ON CONFLICT(seed_user_id, artist_user_id) DO UPDATE SET
+                    last_shown_epoch=excluded.last_shown_epoch,
+                    rounds_shown=recommended_history.rounds_shown + 1
+                """,
+                [(seed_user_id, int(a), int(now_epoch), int(now_epoch)) for a in artist_user_ids],
+            )
+
+    def fetch_recommendation_exposure(self, *, seed_user_id: int) -> dict[int, int]:
+        """{artist_user_id: rounds_shown} for repeat-exposure downranking."""
+        with self.database.connect() as conn:
+            rows = conn.execute(
+                "SELECT artist_user_id, rounds_shown FROM recommended_history WHERE seed_user_id = ?",
+                (seed_user_id,),
+            ).fetchall()
+        return {int(r['artist_user_id']): int(r['rounds_shown']) for r in rows}
+
     def mark_artist_hydrated(self, *, artist_user_id: int, now_epoch: float) -> None:
         with self.database.connect() as conn:
             conn.execute(

@@ -376,5 +376,153 @@ class RankServiceTests(unittest.TestCase):
             self.assertTrue(any('quality:relative_min=' in reason for reason in result.items[0].reasons))
 
 
+class Q0QualityTests(unittest.TestCase):
+    def _base_repo(self, tmpdir: str, name: str) -> RecommendationRepository:
+        repo = RecommendationRepository(SQLiteDatabase(Path(tmpdir) / name))
+        repo.initialize()
+        repo.upsert_seed_user(SeedUser(user_id=7, refresh_token_ref='masked:token'))
+        repo.upsert_artist(Artist(user_id=1001, name='followed', is_followed=True))
+        repo.upsert_following_edge(seed_user_id=7, artist_user_id=1001)
+        repo.replace_user_taste_profile(seed_user_id=7, weights=[('blue_hair', 0.7), ('kemomimi', 0.3)])
+        return repo
+
+    @staticmethod
+    def _add_candidate(repo: RecommendationRepository, *, artist_id: int, tags: list[str], bookmarks: int = 200) -> None:
+        repo.upsert_artist(Artist(user_id=artist_id, name=f'cand-{artist_id}'))
+        for i in (1, 2):
+            illust_id = artist_id * 10 + i
+            repo.upsert_illust(Illust(illust_id=illust_id, user_id=artist_id, title=f'i{i}', total_bookmarks=bookmarks, total_view=bookmarks * 10, total_comments=3))
+            repo.replace_illust_tags(illust_id=illust_id, tags=tags)
+
+    def test_kemomimi_artist_no_longer_hard_blocked(self) -> None:
+        # 'ケモ' substring used to erase ケモミミ (animal-ears) artists — one of
+        # the most mainstream anime tags. Soft genre fraction must not match it.
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = self._base_repo(tmpdir, 'kemomimi.sqlite3')
+            self._add_candidate(repo, artist_id=2001, tags=['blue hair', 'ケモミミ'])
+            repo.replace_artist_candidates(seed_user_id=7, candidates=[(2001, 'user_related', 'user:1001', 1.0, 'x')])
+            result = HeuristicArtistRankService(repository=repo, min_relative_bookmark_ratio=0.0).rank_from_store(
+                seed_user_id=7, min_score=0.01
+            )
+            self.assertEqual([item.artist.user_id for item in result.items], [2001])
+
+    def test_full_furry_portfolio_still_dropped_via_genre_fraction(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = self._base_repo(tmpdir, 'furry.sqlite3')
+            self._add_candidate(repo, artist_id=2001, tags=['blue hair', 'ケモノ'])
+            repo.replace_artist_candidates(seed_user_id=7, candidates=[(2001, 'user_related', 'user:1001', 1.0, 'x')])
+            result = HeuristicArtistRankService(repository=repo, min_relative_bookmark_ratio=0.0).rank_from_store(
+                seed_user_id=7, min_score=0.01
+            )
+            self.assertEqual(result.items, [])
+
+    def test_single_manga_work_no_longer_erases_artist(self) -> None:
+        # 1 of 4 works tagged 漫画 → genre fraction 0.25 < 0.34 limit → survives.
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = self._base_repo(tmpdir, 'manga-frac.sqlite3')
+            repo.upsert_artist(Artist(user_id=2001, name='mostly-illust'))
+            for i in (1, 2, 3, 4):
+                illust_id = 20010 + i
+                repo.upsert_illust(Illust(illust_id=illust_id, user_id=2001, title=f'i{i}', total_bookmarks=200, total_view=2000, total_comments=3))
+                repo.replace_illust_tags(illust_id=illust_id, tags=['blue hair', '漫画'] if i == 1 else ['blue hair'])
+            repo.replace_artist_candidates(seed_user_id=7, candidates=[(2001, 'user_related', 'user:1001', 1.0, 'x')])
+            result = HeuristicArtistRankService(repository=repo, min_relative_bookmark_ratio=0.0).rank_from_store(
+                seed_user_id=7, min_score=0.01
+            )
+            self.assertEqual([item.artist.user_id for item in result.items], [2001])
+
+    def test_cofollow_signal_boosts_candidate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = self._base_repo(tmpdir, 'cofollow.sqlite3')
+            self._add_candidate(repo, artist_id=2001, tags=['blue hair'])
+            self._add_candidate(repo, artist_id=2002, tags=['blue hair'])
+            repo.replace_artist_candidates(
+                seed_user_id=7,
+                candidates=[
+                    (2001, 'user_related', 'user:1001', 1.0, 'plain'),
+                    (2002, 'user_related', 'user:1001', 1.0, 'plain'),
+                    # 2002 is followed by three of my followed artists.
+                    (2002, 'seed_artist_following', 'following-of:1001', 0.55, 'cf'),
+                    (2002, 'seed_artist_following', 'following-of:1002', 0.55, 'cf'),
+                    (2002, 'seed_artist_following', 'following-of:1003', 0.55, 'cf'),
+                ],
+            )
+            result = HeuristicArtistRankService(repository=repo, min_relative_bookmark_ratio=0.0).rank_from_store(
+                seed_user_id=7, min_score=0.01
+            )
+            self.assertEqual(result.items[0].artist.user_id, 2002)
+            self.assertTrue(any(r.startswith('cofollow:count=3') for r in result.items[0].reasons))
+
+    def test_taste_floor_blocks_low_taste_candidates(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = self._base_repo(tmpdir, 'taste-floor.sqlite3')
+            # Candidate barely overlaps: one weak profile tag among many.
+            repo.replace_user_taste_profile(
+                seed_user_id=7,
+                weights=[('blue_hair', 0.5)] + [(f'tag_{i}', 0.01) for i in range(40)],
+            )
+            self._add_candidate(repo, artist_id=2001, tags=['tag_0', 'unrelated_a', 'unrelated_b', 'unrelated_c', 'unrelated_d', 'unrelated_e'], bookmarks=5000)
+            repo.replace_artist_candidates(seed_user_id=7, candidates=[(2001, 'user_related', 'user:1001', 1.0, 'x')])
+            with_floor = HeuristicArtistRankService(repository=repo, min_relative_bookmark_ratio=0.0, taste_floor=0.12).rank_from_store(
+                seed_user_id=7, min_score=0.0
+            )
+            self.assertEqual(with_floor.items, [])
+            without_floor = HeuristicArtistRankService(repository=repo, min_relative_bookmark_ratio=0.0, taste_floor=0.0).rank_from_store(
+                seed_user_id=7, min_score=0.0
+            )
+            self.assertEqual([item.artist.user_id for item in without_floor.items], [2001])
+
+    def test_median_gate_blocks_single_viral_artist(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = self._base_repo(tmpdir, 'median-gate.sqlite3')
+            # Followed tier: three artists with max ~1000.
+            for artist_id, bm in ((1002, 900), (1003, 1000), (1004, 1100)):
+                repo.upsert_artist(Artist(user_id=artist_id, name=f'f{artist_id}', is_followed=True))
+                repo.upsert_following_edge(seed_user_id=7, artist_user_id=artist_id)
+                repo.upsert_illust(Illust(illust_id=artist_id * 10, user_id=artist_id, title='f', total_bookmarks=bm))
+            # Viral-once candidate: one 2000-bm hit, rest at 30 → median 30 fails P40 gate.
+            repo.upsert_artist(Artist(user_id=2001, name='one-hit'))
+            repo.upsert_illust(Illust(illust_id=20011, user_id=2001, title='viral', total_bookmarks=2000, total_view=20000))
+            repo.upsert_illust(Illust(illust_id=20012, user_id=2001, title='meh1', total_bookmarks=30, total_view=300))
+            repo.upsert_illust(Illust(illust_id=20013, user_id=2001, title='meh2', total_bookmarks=25, total_view=250))
+            for illust_id in (20011, 20012, 20013):
+                repo.replace_illust_tags(illust_id=illust_id, tags=['blue hair'])
+            # Consistent candidate: all works around 600.
+            self._add_candidate(repo, artist_id=2002, tags=['blue hair'], bookmarks=600)
+            repo.replace_artist_candidates(
+                seed_user_id=7,
+                candidates=[
+                    (2001, 'user_related', 'user:1001', 1.0, 'viral'),
+                    (2002, 'user_related', 'user:1001', 1.0, 'steady'),
+                ],
+            )
+            result = HeuristicArtistRankService(repository=repo, min_relative_bookmark_ratio=0.45).rank_from_store(
+                seed_user_id=7, min_score=0.01
+            )
+            self.assertEqual([item.artist.user_id for item in result.items], [2002])
+
+    def test_exposure_decay_downranks_repeatedly_shown(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = self._base_repo(tmpdir, 'exposure.sqlite3')
+            self._add_candidate(repo, artist_id=2001, tags=['blue hair'])
+            self._add_candidate(repo, artist_id=2002, tags=['blue hair'])
+            repo.replace_artist_candidates(
+                seed_user_id=7,
+                candidates=[
+                    (2001, 'user_related', 'user:1001', 1.0, 'a'),
+                    (2002, 'user_related', 'user:1001', 1.0, 'b'),
+                ],
+            )
+            # 2001 shown 5 prior rounds without being followed.
+            for _ in range(5):
+                repo.record_recommendation_exposure(seed_user_id=7, artist_user_ids=[2001], now_epoch=1000.0)
+            result = HeuristicArtistRankService(repository=repo, min_relative_bookmark_ratio=0.0).rank_from_store(
+                seed_user_id=7, min_score=0.01
+            )
+            self.assertEqual([item.artist.user_id for item in result.items], [2002, 2001])
+            shown_item = next(item for item in result.items if item.artist.user_id == 2001)
+            self.assertTrue(any(r.startswith('exposure:rounds_shown=5') for r in shown_item.reasons))
+
+
 if __name__ == '__main__':
     unittest.main()

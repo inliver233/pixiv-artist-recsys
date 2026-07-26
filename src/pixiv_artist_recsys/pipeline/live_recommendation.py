@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from uuid import uuid4
 
@@ -50,7 +51,7 @@ class LiveRecommendationRequest:
     require_tag_overlap: bool = True
     max_genre_fraction: float = 0.34
     max_ai_fraction: float = 0.12
-    min_relative_bookmark_ratio: float = 0.35
+    min_relative_bookmark_ratio: float = 0.45
     sample_salt: int | str | None = None
     explore_ratio: float = 0.25
     # Skip full following resync when edges exist and last sync is younger than this (0 = always sync).
@@ -103,7 +104,7 @@ class LiveRecommendationPipeline:
             repository=repository,
             max_genre_fraction=0.34,
             max_ai_fraction=0.12,
-            min_relative_bookmark_ratio=0.35,
+            min_relative_bookmark_ratio=0.45,
         )
 
     def run(
@@ -240,6 +241,12 @@ class LiveRecommendationPipeline:
         )
         if request.persist_run:
             self.repository.record_run(run)
+            # Exposure history feeds repeat-show downranking in the ranker.
+            self.repository.record_recommendation_exposure(
+                seed_user_id=request.seed_user_id,
+                artist_user_ids=[item.artist.user_id for item in ranked_result.items],
+                now_epoch=time.time(),
+            )
             self.repository.upsert_run_audit(
                 run_id=run.run_id,
                 seed_user_id=request.seed_user_id,
