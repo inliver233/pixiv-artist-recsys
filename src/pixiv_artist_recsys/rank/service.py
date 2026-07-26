@@ -60,8 +60,10 @@ _GENRE_FAMILIES: dict[str, tuple[str, ...]] = {
 # Source reliability used when aggregating evidence (following is broad/noisy).
 _SOURCE_RELIABILITY: dict[str, float] = {
     'user_related': 1.0,
+    'graph_ppr': 0.95,
     'user_recommended': 0.9,
     'illust_related': 0.85,
+    'graph_jaccard': 0.8,
     'tag_search': 0.75,
     'seed_artist_following': 0.55,
 }

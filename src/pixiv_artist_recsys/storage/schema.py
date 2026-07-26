@@ -182,4 +182,13 @@ SCHEMA_STATEMENTS = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status, job_id)",
+    """
+    CREATE TABLE IF NOT EXISTS artist_follow_edges (
+        follower_artist_id INTEGER NOT NULL,
+        followee_artist_id INTEGER NOT NULL,
+        first_seen_epoch INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY(follower_artist_id, followee_artist_id)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_follow_edges_followee ON artist_follow_edges(followee_artist_id)",
 ]

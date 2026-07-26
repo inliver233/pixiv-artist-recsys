@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import random
 import time
+from collections import defaultdict
 from dataclasses import dataclass
 from typing import Callable
 
@@ -13,6 +15,19 @@ from ..utils.sampling import sample_ids
 
 # Recently hydrated artists are skipped (their portfolios barely move week to week).
 DEFAULT_HYDRATE_TTL_S = 10 * 86400.0
+
+# Hydration budget shares per dominant recall source (x-algorithm quota model).
+# Hydration IS the real recall — 94% of candidates died unhydrated in the field —
+# so the budget split is enforced here, not at fetch time. Normalized at use.
+DEFAULT_SOURCE_QUOTAS: dict[str, float] = {
+    'user_related': 0.40,
+    'illust_related': 0.25,
+    'seed_artist_following': 0.20,
+    'user_recommended': 0.10,
+    'tag_search': 0.05,
+    'graph_ppr': 0.10,
+    'graph_jaccard': 0.05,
+}
 
 
 @dataclass(slots=True)
@@ -86,6 +101,7 @@ class ArtistIllustHydrationService:
         seed_sample: str = 'random',
         sample_salt: int | str | None = None,
         explore_ratio: float = 0.25,
+        source_quotas: dict[str, float] | None = None,
         on_progress: ProgressCallback | None = None,
     ) -> ArtistIllustHydrationResult:
         followed_ids = set(self.repository.list_following_artist_ids(seed_user_id=seed_user_id))
@@ -98,16 +114,15 @@ class ArtistIllustHydrationService:
             candidate_ids.append(artist_user_id)
         candidate_ids, skipped_fresh = self._drop_fresh(candidate_ids, on_progress=on_progress, scope='candidate')
         if max_artists is not None:
-            # Prefer multi-source / higher-weight candidates when quality scores available.
-            quality_scores = self._candidate_priority_scores(seed_user_id=seed_user_id, candidate_ids=candidate_ids)
-            candidate_ids = sample_ids(
-                candidate_ids,
+            candidate_ids = self._select_candidates_with_quota(
                 seed_user_id=seed_user_id,
+                candidate_ids=candidate_ids,
                 limit=max(0, int(max_artists)),
-                mode=seed_sample,
-                quality_scores=quality_scores,
+                seed_sample=seed_sample,
                 sample_salt=sample_salt,
                 explore_ratio=explore_ratio,
+                source_quotas=source_quotas if source_quotas is not None else DEFAULT_SOURCE_QUOTAS,
+                on_progress=on_progress,
             )
         return self._hydrate_artist_ids(
             seed_user_id=seed_user_id,
@@ -117,6 +132,102 @@ class ArtistIllustHydrationService:
             skipped_fresh=skipped_fresh,
             on_progress=on_progress,
         )
+
+    def _select_candidates_with_quota(
+        self,
+        *,
+        seed_user_id: int,
+        candidate_ids: list[int],
+        limit: int,
+        seed_sample: str,
+        sample_salt: int | str | None,
+        explore_ratio: float,
+        source_quotas: dict[str, float] | None,
+        on_progress: ProgressCallback | None = None,
+    ) -> list[int]:
+        """Split the hydration budget across recall sources by quota.
+
+        Each candidate belongs to its highest-weight evidence source. Every
+        source bucket gets quota*limit slots (sampled within the bucket by the
+        usual priority mode); unused slots spill over to the global pool so the
+        budget is always filled. Empty/None quotas = legacy global sampling.
+        """
+        if limit <= 0 or not candidate_ids:
+            return []
+        quality_scores = self._candidate_priority_scores(seed_user_id=seed_user_id, candidate_ids=candidate_ids)
+        if not source_quotas or limit >= len(candidate_ids):
+            return sample_ids(
+                candidate_ids,
+                seed_user_id=seed_user_id,
+                limit=limit,
+                mode=seed_sample,
+                quality_scores=quality_scores,
+                sample_salt=sample_salt,
+                explore_ratio=explore_ratio,
+            )
+
+        dominant: dict[int, str] = {}
+        best_weight: dict[int, float] = {}
+        for candidate_user_id, source_type, _source_key, weight, _detail in self.repository.fetch_artist_candidates(
+            seed_user_id=seed_user_id
+        ):
+            cid = int(candidate_user_id)
+            if cid not in quality_scores:
+                continue
+            if float(weight) > best_weight.get(cid, -1.0):
+                best_weight[cid] = float(weight)
+                dominant[cid] = str(source_type)
+
+        buckets: dict[str, list[int]] = defaultdict(list)
+        for cid in candidate_ids:
+            buckets[dominant.get(int(cid), 'unknown')].append(int(cid))
+
+        total_quota = sum(max(0.0, q) for src, q in source_quotas.items() if src in buckets) or 1.0
+        selected: list[int] = []
+        chosen: set[int] = set()
+        for source, ids in sorted(buckets.items(), key=lambda kv: -source_quotas.get(kv[0], 0.0)):
+            share = max(0.0, source_quotas.get(source, 0.0)) / total_quota
+            bucket_limit = int(round(limit * share))
+            if bucket_limit <= 0:
+                continue
+            picked = sample_ids(
+                ids,
+                seed_user_id=seed_user_id,
+                limit=min(bucket_limit, len(ids)),
+                mode=seed_sample,
+                quality_scores=quality_scores,
+                sample_salt=sample_salt,
+                explore_ratio=explore_ratio,
+            )
+            for cid in picked:
+                if cid not in chosen:
+                    chosen.add(cid)
+                    selected.append(cid)
+        if len(selected) < limit:
+            # Spill: fill remaining slots from the global pool by priority.
+            remaining = [cid for cid in candidate_ids if cid not in chosen]
+            filler = sample_ids(
+                remaining,
+                seed_user_id=seed_user_id,
+                limit=limit - len(selected),
+                mode=seed_sample,
+                quality_scores=quality_scores,
+                sample_salt=sample_salt,
+                explore_ratio=explore_ratio,
+            )
+            selected.extend(filler)
+        emit(
+            on_progress,
+            stage='hydrate_candidate',
+            event='info',
+            message=(
+                'quota split: '
+                + ', '.join(f'{src}={len(ids)}' for src, ids in sorted(buckets.items()))
+                + f' -> selected={len(selected[:limit])}'
+            ),
+            scope='candidate',
+        )
+        return selected[:limit]
 
     def _drop_fresh(
         self,

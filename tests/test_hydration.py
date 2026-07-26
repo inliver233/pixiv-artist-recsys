@@ -181,6 +181,58 @@ class FaultToleranceTests(unittest.TestCase):
             self.assertEqual(sorted(repo.fetch_artist_tags(artist_user_id=1003)), ['tag-a'])
 
 
+class SourceQuotaTests(unittest.TestCase):
+    def test_quota_reserves_slots_for_minor_sources(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = RecommendationRepository(SQLiteDatabase(Path(tmpdir) / 'quota.sqlite3'))
+            repo.initialize()
+            repo.upsert_seed_user(SeedUser(user_id=7, refresh_token_ref='masked:token'))
+            # 8 user_related candidates vs 2 tag_search candidates.
+            rows = []
+            for artist_id in range(3001, 3009):
+                rows.append((artist_id, 'user_related', 'user:1', 1.0, 'ur'))
+            for artist_id in (4001, 4002):
+                rows.append((artist_id, 'tag_search', 'tag:x', 0.7, 'ts'))
+            repo.replace_artist_candidates(seed_user_id=7, candidates=rows)
+
+            service = ArtistIllustHydrationService(repository=repo, pixiv_client=FakeHydrationClient())
+            selected = service._select_candidates_with_quota(
+                seed_user_id=7,
+                candidate_ids=[r[0] for r in rows],
+                limit=5,
+                seed_sample='first',
+                sample_salt=None,
+                explore_ratio=0.0,
+                source_quotas={'user_related': 0.6, 'tag_search': 0.4},
+            )
+            self.assertEqual(len(selected), 5)
+            tag_hits = [cid for cid in selected if cid in {4001, 4002}]
+            # 40% of 5 = 2 slots reserved for tag_search even though user_related
+            # dominates the pool.
+            self.assertEqual(len(tag_hits), 2)
+
+    def test_quota_spills_unused_slots(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = RecommendationRepository(SQLiteDatabase(Path(tmpdir) / 'quota-spill.sqlite3'))
+            repo.initialize()
+            repo.upsert_seed_user(SeedUser(user_id=7, refresh_token_ref='masked:token'))
+            rows = [(artist_id, 'user_related', 'user:1', 1.0, 'ur') for artist_id in range(3001, 3011)]
+            repo.replace_artist_candidates(seed_user_id=7, candidates=rows)
+
+            service = ArtistIllustHydrationService(repository=repo, pixiv_client=FakeHydrationClient())
+            # tag_search quota exists but its bucket is empty → slots spill to user_related.
+            selected = service._select_candidates_with_quota(
+                seed_user_id=7,
+                candidate_ids=[r[0] for r in rows],
+                limit=6,
+                seed_sample='first',
+                sample_salt=None,
+                explore_ratio=0.0,
+                source_quotas={'user_related': 0.5, 'tag_search': 0.5},
+            )
+            self.assertEqual(len(selected), 6)
+
+
 class CandidateHydrationTests(unittest.TestCase):
     def test_hydrate_candidate_artists_skips_followed_and_deduplicates(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

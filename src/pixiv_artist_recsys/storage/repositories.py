@@ -450,6 +450,55 @@ class RecommendationRepository:
             ).fetchall()
         return {int(r['artist_user_id']): int(r['rounds_shown']) for r in rows}
 
+    def record_follow_edges(self, *, edges: list[tuple[int, int]], now_epoch: float) -> None:
+        """Persist observed artist→artist follow edges (follower, followee)."""
+        rows = [
+            (int(follower), int(followee), int(now_epoch))
+            for follower, followee in edges
+            if int(follower) > 0 and int(followee) > 0 and int(follower) != int(followee)
+        ]
+        if not rows:
+            return
+        with self.database.connect() as conn:
+            conn.executemany(
+                """
+                INSERT INTO artist_follow_edges (follower_artist_id, followee_artist_id, first_seen_epoch)
+                VALUES (?, ?, ?)
+                ON CONFLICT(follower_artist_id, followee_artist_id) DO NOTHING
+                """,
+                rows,
+            )
+
+    def fetch_follow_edges(self) -> list[tuple[int, int]]:
+        with self.database.connect() as conn:
+            rows = conn.execute(
+                "SELECT follower_artist_id, followee_artist_id FROM artist_follow_edges"
+            ).fetchall()
+        return [(int(r['follower_artist_id']), int(r['followee_artist_id'])) for r in rows]
+
+    def fetch_seed_following_evidence_edges(self, *, seed_user_id: int) -> list[tuple[int, int]]:
+        """Legacy graph edges from stored seed_artist_following evidence.
+
+        source_key 'following-of:{S}' means followed artist S follows the candidate.
+        """
+        with self.database.connect() as conn:
+            rows = conn.execute(
+                "SELECT source_key, candidate_user_id FROM artist_candidates "
+                "WHERE seed_user_id = ? AND source_type = 'seed_artist_following'",
+                (seed_user_id,),
+            ).fetchall()
+        edges: list[tuple[int, int]] = []
+        for r in rows:
+            key = str(r['source_key'] or '')
+            if not key.startswith('following-of:'):
+                continue
+            try:
+                follower = int(key.split(':', 1)[1])
+            except ValueError:
+                continue
+            edges.append((follower, int(r['candidate_user_id'])))
+        return edges
+
     def mark_artist_hydrated(self, *, artist_user_id: int, now_epoch: float) -> None:
         with self.database.connect() as conn:
             conn.execute(

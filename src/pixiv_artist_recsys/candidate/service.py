@@ -9,6 +9,7 @@ from ..pixiv import PixivAppApiClient
 from ..storage.repositories import RecommendationRepository
 from ..utils.progress import ProgressCallback, emit
 from ..utils.sampling import hash_sample_ids, sample_ids
+from .graph import graph_recall
 
 # illust_related responses are stable enough to reuse for a week.
 ILLUST_RELATED_CACHE_TTL_S = 7 * 86400.0
@@ -21,6 +22,10 @@ WEIGHT_ILLUST_RELATED = 0.85
 WEIGHT_USER_RECOMMENDED = 0.9
 WEIGHT_TAG_SEARCH = 0.7
 WEIGHT_SEED_ARTIST_FOLLOWING = 0.55
+# Graph recall reuses locally recorded follow edges — zero API cost. PPR is the
+# strongest collaborative structure signal; evidence weight scales with the score.
+WEIGHT_GRAPH_PPR = 0.95
+WEIGHT_GRAPH_JACCARD = 0.8
 
 # Tags too generic for search recall (profile may still keep them at low weight).
 TAG_SEARCH_BLOCKLIST: frozenset[str] = frozenset(
@@ -83,6 +88,8 @@ class RelatedArtistCandidateService:
         seed_following_sample: str = 'random',
         seed_following_restrict: str = 'public',
         seed_following_max_pages: int = 4,
+        enable_graph_recall: bool = True,
+        max_graph_candidates: int = 300,
         merge_candidates: bool = False,
         sample_salt: int | str | None = None,
         explore_ratio: float = 0.25,
@@ -203,6 +210,7 @@ class RelatedArtistCandidateService:
             # Page cap: already-followed users do not count toward taken, so a
             # high-overlap artist could otherwise be paged unboundedly (P-9).
             page_cap = max(1, int(seed_following_max_pages))
+            follow_graph_edges: list[tuple[int, int]] = []
             for expand_index, artist_id in enumerate(expand_ids, start=1):
                 taken = 0
                 offset = 0
@@ -218,6 +226,11 @@ class RelatedArtistCandidateService:
                         if not page.items:
                             break
                         for user in page.items:
+                            observed_id = int(getattr(user, 'user_id', 0) or 0)
+                            if observed_id > 0:
+                                # Every observed page feeds the artist follow graph,
+                                # including already-followed targets (PPR needs them).
+                                follow_graph_edges.append((artist_id, observed_id))
                             if taken >= per_cap:
                                 break
                             accepted = self._accept_user_candidate(
@@ -259,6 +272,10 @@ class RelatedArtistCandidateService:
                     seed_artist_id=artist_id,
                     taken=taken,
                     evidence_count=len(evidence_rows),
+                )
+            if follow_graph_edges:
+                self.repository.record_follow_edges(
+                    edges=follow_graph_edges, now_epoch=float(self.now_fn())
                 )
 
         if enable_user_recommended and hasattr(self.pixiv_client, 'fetch_user_recommended'):
@@ -346,6 +363,17 @@ class RelatedArtistCandidateService:
                     evidence_count=len(evidence_rows),
                 )
 
+        if enable_graph_recall:
+            self._add_graph_recall_evidence(
+                seed_user_id=seed_user_id,
+                followed_artist_ids=followed_artist_ids,
+                quality_scores=quality_scores,
+                hydrated_artist_cache=hydrated_artist_cache,
+                evidence_rows=evidence_rows,
+                max_graph_candidates=max_graph_candidates,
+                on_progress=on_progress,
+            )
+
         for artist in hydrated_artist_cache.values():
             self.repository.upsert_artist(artist)
         self.repository.replace_artist_candidates(
@@ -375,6 +403,79 @@ class RelatedArtistCandidateService:
             seed_user_id=seed_user_id,
             candidate_count=candidate_count,
             evidence_count=evidence_count,
+        )
+
+    def _add_graph_recall_evidence(
+        self,
+        *,
+        seed_user_id: int,
+        followed_artist_ids: set[int],
+        quality_scores: dict[int, float],
+        hydrated_artist_cache: dict[int, Artist],
+        evidence_rows: list[tuple[int, str, str, float, str]],
+        max_graph_candidates: int,
+        on_progress: ProgressCallback | None = None,
+    ) -> None:
+        """PPR + co-follow Jaccard over recorded follow edges (zero API cost)."""
+        edges = self.repository.fetch_follow_edges()
+        if not edges:
+            # First runs after upgrade: reconstruct edges from legacy evidence rows.
+            edges = self.repository.fetch_seed_following_evidence_edges(seed_user_id=seed_user_id)
+        if not edges:
+            return
+        result = graph_recall(
+            edges,
+            followed_ids=followed_artist_ids,
+            seed_quality=quality_scores,
+            max_candidates=max_graph_candidates,
+        )
+        added = 0
+        for candidate_id, score in result.ppr_scores.items():
+            if candidate_id == seed_user_id or candidate_id in followed_artist_ids:
+                continue
+            if candidate_id not in hydrated_artist_cache:
+                existing = self.repository.fetch_artist(artist_user_id=candidate_id)
+                hydrated_artist_cache[candidate_id] = existing or Artist(
+                    user_id=candidate_id, name=f'artist-{candidate_id}', is_followed=False
+                )
+            evidence_rows.append(
+                (
+                    candidate_id,
+                    'graph_ppr',
+                    'follow-graph:ppr',
+                    WEIGHT_GRAPH_PPR * float(score),
+                    f'ppr-score:{round(float(score), 4)}',
+                )
+            )
+            added += 1
+        for candidate_id, score in result.jaccard_scores.items():
+            if candidate_id == seed_user_id or candidate_id in followed_artist_ids:
+                continue
+            if candidate_id not in hydrated_artist_cache:
+                existing = self.repository.fetch_artist(artist_user_id=candidate_id)
+                hydrated_artist_cache[candidate_id] = existing or Artist(
+                    user_id=candidate_id, name=f'artist-{candidate_id}', is_followed=False
+                )
+            evidence_rows.append(
+                (
+                    candidate_id,
+                    'graph_jaccard',
+                    'follow-graph:jaccard',
+                    WEIGHT_GRAPH_JACCARD * float(score),
+                    f'jaccard-score:{round(float(score), 4)}',
+                )
+            )
+            added += 1
+        emit(
+            on_progress,
+            stage='candidates',
+            event='info',
+            message=(
+                f'graph recall: nodes={result.node_count} edges={result.edge_count} '
+                f'ppr={len(result.ppr_scores)} jaccard={len(result.jaccard_scores)}'
+            ),
+            phase='graph_recall',
+            evidence_added=added,
         )
 
     def _related_user_ids_for_illusts(self, *, illust_ids: list[int], max_users: int) -> list[int]:
