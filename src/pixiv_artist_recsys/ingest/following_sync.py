@@ -8,6 +8,7 @@ from ..domain.models import Artist, SeedUser
 from ..pixiv import PixivAppApiClient
 from ..storage.repositories import RecommendationRepository
 from ..utils.progress import ProgressCallback, emit
+from .preview_capture import persist_preview_illusts
 
 # Following list changes by single digits per day; a same-day resync is pure tax.
 DEFAULT_SYNC_TTL_S = 24 * 3600.0
@@ -21,6 +22,7 @@ class FollowingSyncResult:
     synced_count: int
     pages_fetched: int
     skipped_fresh: bool = False
+    preview_illusts_saved: int = 0
 
 
 class FollowingSyncService:
@@ -98,6 +100,7 @@ class FollowingSyncService:
 
         pages = 0
         synced_count = 0
+        preview_saved = 0
         for mode in restrict_modes:
             offset = 0
             consecutive_known = 0
@@ -125,6 +128,9 @@ class FollowingSyncService:
                                 consecutive_known += 1
                             else:
                                 consecutive_known = 0
+                # Free stage-1 hydration: each preview carries ~3 latest works
+                # with tags/bookmarks at zero request cost.
+                preview_saved += persist_preview_illusts(self.repository, page.items)
                 if stop_after > 0 and consecutive_known >= stop_after:
                     emit(
                         on_progress,
@@ -162,11 +168,20 @@ class FollowingSyncService:
             stage='following_sync',
             event='done',
             current=synced_count,
-            message=f'done: synced={synced_count} pages={pages} modes={"+".join(restrict_modes)}',
+            message=(
+                f'done: synced={synced_count} pages={pages} modes={"+".join(restrict_modes)} '
+                f'free_preview_illusts={preview_saved}'
+            ),
             pages_fetched=pages,
             synced_count=synced_count,
+            preview_illusts_saved=preview_saved,
         )
-        return FollowingSyncResult(seed_user_id=seed_user_id, synced_count=synced_count, pages_fetched=pages)
+        return FollowingSyncResult(
+            seed_user_id=seed_user_id,
+            synced_count=synced_count,
+            pages_fetched=pages,
+            preview_illusts_saved=preview_saved,
+        )
 
     @staticmethod
     def _restrict_modes(restrict: str) -> list[str]:

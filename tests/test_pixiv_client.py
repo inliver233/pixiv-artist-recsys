@@ -121,6 +121,39 @@ class PixivClientTests(unittest.TestCase):
         self.assertTrue(headers['App-Version'])
         self.assertTrue(headers['App-OS-Version'])
 
+    def test_user_preview_captures_bundled_illusts(self) -> None:
+        class PreviewTransport:
+            def send(self, **kwargs):
+                return HttpResponse(200, {}, json.dumps({
+                    'user_previews': [
+                        {
+                            'user': {'id': 101, 'name': 'artist-a', 'account': 'a'},
+                            'illusts': [
+                                {
+                                    'id': 701, 'title': 'p1', 'total_bookmarks': 250, 'total_view': 2500,
+                                    'tags': [{'name': 'blue hair'}],
+                                    'image_urls': {'square_medium': 'https://i.pximg.net/701_sq.jpg'},
+                                },
+                                {'id': 702, 'title': 'p2', 'total_bookmarks': 180},
+                            ],
+                        },
+                    ],
+                    'next_url': None,
+                }))
+
+        client = PixivAppApiClient(access_token_provider=StaticAccessTokenProvider('t'), transport=PreviewTransport())
+        page = client.fetch_user_related(seed_user_id=1)
+        user = page.items[0]
+        self.assertEqual(user.user_id, 101)
+        self.assertEqual(len(user.preview_illusts), 2)
+        first = user.preview_illusts[0]
+        self.assertEqual(first.illust_id, 701)
+        # user id backfilled from the preview owner when omitted in the illust.
+        self.assertEqual(first.user_id, 101)
+        self.assertEqual(first.total_bookmarks, 250)
+        self.assertEqual(first.tags, ['blue hair'])
+        self.assertTrue(first.image_url.endswith('701_sq.jpg'))
+
     def test_illust_related_passes_batch_seed_param(self) -> None:
         transport = FakePixivTransport()
         client = PixivAppApiClient(access_token_provider=StaticAccessTokenProvider('token-abc'), transport=transport)

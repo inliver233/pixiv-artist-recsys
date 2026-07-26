@@ -18,6 +18,10 @@ class PixivUserSummary:
     name: str
     account: str = ""
     profile_image_url: str = ""
+    # user_previews responses ship each user's ~3 latest full illust objects
+    # (tags, bookmarks, ai flags) for free — capturing them is a zero-request
+    # first hydration pass for every candidate/follow seen in list APIs.
+    preview_illusts: list["PixivIllustSummary"] = field(default_factory=list)
 
 
 @dataclass(slots=True)

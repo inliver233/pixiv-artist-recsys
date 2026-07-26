@@ -194,7 +194,19 @@ class PixivAppApiClient:
     @staticmethod
     def _parse_user_preview(raw: Any) -> PixivUserSummary:
         if isinstance(raw, dict) and isinstance(raw.get('user'), dict):
-            return PixivAppApiClient._parse_user(raw['user'])
+            user = PixivAppApiClient._parse_user(raw['user'])
+            # Free bundled works: full illust objects incl. tags/bookmarks.
+            previews = []
+            for item in raw.get('illusts') or []:
+                if isinstance(item, dict):
+                    summary = PixivAppApiClient._parse_illust_summary(item)
+                    # user field is often omitted inside previews — backfill.
+                    if summary.user_id <= 0:
+                        summary.user_id = user.user_id
+                    if summary.illust_id > 0:
+                        previews.append(summary)
+            user.preview_illusts = previews
+            return user
         return PixivUserSummary(user_id=0, name='unknown')
 
     @staticmethod

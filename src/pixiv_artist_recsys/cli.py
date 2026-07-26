@@ -360,6 +360,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=settings.recommendation.min_relative_bookmark_ratio,
     )
 
+    import_dl = sub.add_parser(
+        'import-downloader-stats',
+        help='OPTIONAL one-shot copy of pixiv-downloader follow-image stats (bookmarks/views) into local illusts; pipeline never requires it',
+    )
+    import_dl.add_argument('--downloader-db', required=True, help='Path to pixiv-downloader db.sqlite (opened read-only)')
+
     export_html = sub.add_parser('export-run-html', help='Render a stored run as a browsable HTML report')
     export_html.add_argument('--run-id', required=True)
     export_html.add_argument('--output', help='Output path (default: runtime/reports/<run_id>.html)')
@@ -1188,6 +1194,16 @@ def main(argv: list[str] | None = None) -> int:
                 max_ai_fraction=getattr(args, 'max_ai_fraction', None),
                 min_relative_bookmark_ratio=getattr(args, 'min_relative_bookmark_ratio', None),
             )
+        if args.command == 'import-downloader-stats':
+            from .ingest import DownloaderStatsImportService
+
+            facade = _build_facade()
+            facade.runtime.prepare()
+            result = DownloaderStatsImportService(repository=facade.runtime.repository).import_stats(
+                downloader_db_path=args.downloader_db,
+            )
+            _print_payload(result.to_dict())
+            return 0
         if args.command == 'export-run-html':
             _print_payload(_build_facade().export_run_html_payload(run_id=args.run_id, output=args.output))
             return 0

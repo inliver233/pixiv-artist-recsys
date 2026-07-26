@@ -6,8 +6,8 @@ from pathlib import Path
 
 from tests import test_support  # noqa: F401
 from pixiv_artist_recsys.domain.models import SeedUser
-from pixiv_artist_recsys.ingest import FollowingSyncService
-from pixiv_artist_recsys.pixiv.models import PagedResult, PixivUserSummary
+from pixiv_artist_recsys.ingest import FollowingSyncService, persist_preview_illusts
+from pixiv_artist_recsys.pixiv.models import PagedResult, PixivIllustSummary, PixivUserSummary
 from pixiv_artist_recsys.storage import RecommendationRepository, SQLiteDatabase
 
 
@@ -139,6 +139,54 @@ class IngestTests(unittest.TestCase):
             self.assertEqual(seed_user.refresh_token_ref, 'masked:new')
             self.assertTrue(seed_user.allow_ai)
             self.assertTrue(seed_user.allow_r18)
+
+
+class PreviewCaptureTests(unittest.TestCase):
+    def test_following_sync_saves_free_preview_illusts(self) -> None:
+        class PreviewClient:
+            def fetch_following_users(self, *, user_id: int, restrict: str = 'public', offset: int | None = None):
+                user = PixivUserSummary(user_id=1001, name='artist-1', account='a1')
+                user.preview_illusts = [
+                    PixivIllustSummary(
+                        illust_id=50001, user_id=1001, title='free-1',
+                        total_bookmarks=300, total_view=3000, tags=['blue hair'],
+                    ),
+                    PixivIllustSummary(
+                        illust_id=50002, user_id=1001, title='free-2',
+                        total_bookmarks=200, total_view=2000, tags=['夜景'],
+                    ),
+                ]
+                return PagedResult(items=[user], next_url=None)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repository = RecommendationRepository(SQLiteDatabase(Path(tmpdir) / 'preview.sqlite3'))
+            repository.initialize()
+            service = FollowingSyncService(repository=repository, pixiv_client=PreviewClient())
+            result = service.sync_following(seed_user_id=7, refresh_token_ref='masked:token')
+
+            self.assertEqual(result.preview_illusts_saved, 2)
+            self.assertEqual(repository.count_rows('illusts'), 2)
+            self.assertEqual(sorted(repository.fetch_artist_tags(artist_user_id=1001)), ['blue hair', '夜景'])
+            # Preview capture must NOT mark the artist as fully hydrated
+            # (3 latest works are not a portfolio; skip-if-fresh must still fetch).
+            fresh = repository.fetch_fresh_artist_ids(
+                artist_user_ids=[1001], max_age_s=86400.0, now_epoch=9e9, min_local_illusts=1
+            )
+            self.assertEqual(fresh, set())
+
+    def test_persist_preview_illusts_skips_invalid_entries(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repository = RecommendationRepository(SQLiteDatabase(Path(tmpdir) / 'preview-invalid.sqlite3'))
+            repository.initialize()
+            user = PixivUserSummary(user_id=1001, name='a')
+            user.preview_illusts = [
+                PixivIllustSummary(illust_id=0, user_id=1001, title='no-id'),
+                PixivIllustSummary(illust_id=60001, user_id=0, title='no-user'),
+                PixivIllustSummary(illust_id=60002, user_id=1001, title='ok', total_bookmarks=10),
+            ]
+            saved = persist_preview_illusts(repository, [user])
+            self.assertEqual(saved, 1)
+            self.assertEqual(repository.count_rows('illusts'), 1)
 
 
 if __name__ == '__main__':

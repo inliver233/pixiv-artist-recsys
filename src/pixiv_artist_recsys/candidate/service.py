@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from ..domain.models import Artist
+from ..ingest.preview_capture import persist_preview_illusts
 from ..pixiv import PixivAppApiClient
 from ..storage.repositories import RecommendationRepository
 from ..utils.progress import ProgressCallback, emit
@@ -98,6 +99,8 @@ class RelatedArtistCandidateService:
         followed_artist_ids = set(self.repository.list_following_artist_ids(seed_user_id=seed_user_id))
         evidence_rows: list[tuple[int, str, str, float, str]] = []
         hydrated_artist_cache: dict[int, Artist] = {}
+        # Accepted users whose bundled preview illusts await one batched persist.
+        preview_users: list[object] = []
         quality_scores = self._followed_quality_scores(followed_artist_ids)
         # quality_first prefers high-bookmark followed artists as recall seeds.
         seed_artist_ids = sample_ids(
@@ -139,6 +142,7 @@ class RelatedArtistCandidateService:
                     source_key=f'user:{artist_id}',
                     weight=WEIGHT_USER_RELATED,
                     detail=f'related-to-user:{artist_id}',
+                    preview_users=preview_users,
                 )
 
             # One batched illust_related request per seed artist (seed_illust_ids[]
@@ -243,6 +247,7 @@ class RelatedArtistCandidateService:
                                 weight=WEIGHT_SEED_ARTIST_FOLLOWING,
                                 detail=f'seed-artist-following:{artist_id}',
                                 also_skip_user_id=seed_user_id,
+                                preview_users=preview_users,
                             )
                             if accepted:
                                 taken += 1
@@ -302,6 +307,7 @@ class RelatedArtistCandidateService:
                         weight=WEIGHT_USER_RECOMMENDED,
                         detail='pixiv-user-recommended',
                         also_skip_user_id=seed_user_id,
+                        preview_users=preview_users,
                     )
 
         if enable_tag_search and hasattr(self.pixiv_client, 'fetch_search_illust'):
@@ -372,6 +378,20 @@ class RelatedArtistCandidateService:
                 evidence_rows=evidence_rows,
                 max_graph_candidates=max_graph_candidates,
                 on_progress=on_progress,
+            )
+
+        if preview_users:
+            # Free stage-1 hydration for accepted candidates (tags + bookmarks
+            # from user_previews) — feeds priority scoring and lets the ranker
+            # score them before any paid hydration.
+            saved = persist_preview_illusts(self.repository, preview_users)
+            emit(
+                on_progress,
+                stage='candidates',
+                event='info',
+                message=f'free preview illusts saved: {saved} (from {len(preview_users)} users)',
+                phase='preview_capture',
+                preview_illusts_saved=saved,
             )
 
         for artist in hydrated_artist_cache.values():
@@ -528,6 +548,7 @@ class RelatedArtistCandidateService:
         weight: float,
         detail: str,
         also_skip_user_id: int | None = None,
+        preview_users: list[object] | None = None,
     ) -> bool:
         user_id = int(getattr(user, 'user_id', 0) or 0)
         if user_id <= 0 or user_id in followed_artist_ids:
@@ -542,6 +563,8 @@ class RelatedArtistCandidateService:
             is_followed=False,
         )
         evidence_rows.append((user_id, source_type, source_key, weight, detail))
+        if preview_users is not None and getattr(user, 'preview_illusts', None):
+            preview_users.append(user)
         return True
 
     def _select_seed_artists_for_following_expand(
