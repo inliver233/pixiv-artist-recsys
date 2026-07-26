@@ -22,7 +22,7 @@ import sqlite3
 import sys
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -726,7 +726,13 @@ def cmd_run(args: argparse.Namespace) -> int:
             diversity_per_tag=int(preset['diversity_per_tag']),
             max_ai_fraction=float(preset.get('max_ai_fraction', 0.15)),
             min_relative_bookmark_ratio=float(preset.get('min_relative_bookmark_ratio', 0.35)),
-            sample_salt=getattr(args, 'sample_salt', None),
+            # Default: rotate salt daily so quality_first's explore slice covers a
+            # different region each day instead of freezing on the same artists (Q-5).
+            sample_salt=(
+                getattr(args, 'sample_salt', None)
+                if getattr(args, 'sample_salt', None) is not None
+                else date.today().toordinal()
+            ),
             explore_ratio=float(preset.get('explore_ratio', 0.25)),
             skip_sync_if_fresh=True,
             on_progress=tui,
