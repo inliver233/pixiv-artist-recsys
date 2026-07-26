@@ -360,6 +360,18 @@ def build_parser() -> argparse.ArgumentParser:
         default=settings.recommendation.min_relative_bookmark_ratio,
     )
 
+    evaluate = sub.add_parser(
+        'evaluate-offline',
+        help='Leave-one-out holdout evaluation: Recall@K / NDCG@K over local data (no API calls)',
+    )
+    evaluate.add_argument('--seed-user-id', type=int, required=True)
+    evaluate.add_argument('--holdout-ratio', type=float, default=0.2)
+    evaluate.add_argument('--rng-seed', type=int, default=20260726)
+    evaluate.add_argument('--recall-k', type=int, default=50)
+    evaluate.add_argument('--ndcg-k', type=int, default=20)
+    evaluate.add_argument('--min-local-illusts', type=int, default=settings.recommendation.min_local_illusts)
+    evaluate.add_argument('--profile-min-bookmarks', type=int, default=0)
+
     full = sub.add_parser('full-recommend', help='Run the full live Pixiv recommendation pipeline')
     _add_recommendation_args(full, settings=settings)
 
@@ -679,6 +691,34 @@ def cmd_recommend_from_store(
             min_relative_bookmark_ratio=min_relative_bookmark_ratio,
         )
     )
+    return 0
+
+
+def cmd_evaluate_offline(
+    *,
+    seed_user_id: int,
+    holdout_ratio: float,
+    rng_seed: int,
+    recall_k: int,
+    ndcg_k: int,
+    min_local_illusts: int,
+    profile_min_bookmarks: int,
+) -> int:
+    from ..evaluation import LeaveOneOutEvaluator
+
+    facade = _build_facade()
+    report = LeaveOneOutEvaluator(
+        database=facade.runtime.repository.database,
+        holdout_ratio=holdout_ratio,
+        rng_seed=rng_seed,
+        min_local_illusts=min_local_illusts,
+    ).evaluate(
+        seed_user_id=seed_user_id,
+        recall_k=recall_k,
+        ndcg_k=ndcg_k,
+        profile_min_bookmarks=profile_min_bookmarks,
+    )
+    _print_payload(report.to_dict())
     return 0
 
 
@@ -1143,6 +1183,16 @@ def main(argv: list[str] | None = None) -> int:
                 max_genre_fraction=args.max_genre_fraction,
                 max_ai_fraction=getattr(args, 'max_ai_fraction', None),
                 min_relative_bookmark_ratio=getattr(args, 'min_relative_bookmark_ratio', None),
+            )
+        if args.command == 'evaluate-offline':
+            return cmd_evaluate_offline(
+                seed_user_id=args.seed_user_id,
+                holdout_ratio=args.holdout_ratio,
+                rng_seed=args.rng_seed,
+                recall_k=args.recall_k,
+                ndcg_k=args.ndcg_k,
+                min_local_illusts=args.min_local_illusts,
+                profile_min_bookmarks=args.profile_min_bookmarks,
             )
         if args.command == 'full-recommend':
             return cmd_full_recommend(
