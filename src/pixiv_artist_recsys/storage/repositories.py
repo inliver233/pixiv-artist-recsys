@@ -287,13 +287,49 @@ class RecommendationRepository:
             ).fetchall()
         return [Artist(user_id=int(r['user_id']), name=str(r['name']), account=str(r['account']), is_followed=bool(r['is_followed']), profile_image_url=str(r['profile_image_url'])) for r in rows]
 
-    def list_illust_ids_for_artist(self, *, artist_user_id: int) -> list[int]:
+    def list_illust_ids_for_artist(self, *, artist_user_id: int, limit: int | None = None) -> list[int]:
         with self.database.connect() as conn:
-            rows = conn.execute(
-                "SELECT illust_id FROM illusts WHERE user_id = ? ORDER BY total_bookmarks DESC, illust_id DESC",
-                (artist_user_id,),
-            ).fetchall()
+            if limit is not None:
+                rows = conn.execute(
+                    "SELECT illust_id FROM illusts WHERE user_id = ? ORDER BY total_bookmarks DESC, illust_id DESC LIMIT ?",
+                    (artist_user_id, max(0, int(limit))),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT illust_id FROM illusts WHERE user_id = ? ORDER BY total_bookmarks DESC, illust_id DESC",
+                    (artist_user_id,),
+                ).fetchall()
         return [int(r['illust_id']) for r in rows]
+
+    def get_illust_related_cache(self, *, cache_key: str, max_age_s: float, now_epoch: float) -> list[int] | None:
+        """Cached illust_related result user ids, or None when absent/expired."""
+        with self.database.connect() as conn:
+            row = conn.execute(
+                "SELECT fetched_at_epoch, result_user_ids FROM illust_related_cache WHERE cache_key = ?",
+                (cache_key,),
+            ).fetchone()
+        if row is None:
+            return None
+        if float(now_epoch) - float(row['fetched_at_epoch']) > float(max_age_s):
+            return None
+        try:
+            data = json.loads(str(row['result_user_ids']) or '[]')
+        except ValueError:
+            return None
+        return [int(v) for v in data] if isinstance(data, list) else None
+
+    def put_illust_related_cache(self, *, cache_key: str, user_ids: list[int], now_epoch: float) -> None:
+        with self.database.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO illust_related_cache (cache_key, fetched_at_epoch, result_user_ids)
+                VALUES (?, ?, ?)
+                ON CONFLICT(cache_key) DO UPDATE SET
+                    fetched_at_epoch=excluded.fetched_at_epoch,
+                    result_user_ids=excluded.result_user_ids
+                """,
+                (cache_key, int(now_epoch), json.dumps([int(v) for v in user_ids])),
+            )
 
     def fetch_artist_tags(self, *, artist_user_id: int) -> list[str]:
         with self.database.connect() as conn:

@@ -44,7 +44,8 @@ class UrllibHttpTransport:
     ) -> HttpResponse:
         final_url = url
         if params:
-            query = parse.urlencode({k: v for k, v in params.items() if v is not None})
+            # doseq: list/tuple values become repeated keys (Pixiv array params like seed_illust_ids[]).
+            query = parse.urlencode({k: v for k, v in params.items() if v is not None}, doseq=True)
             separator = '&' if '?' in final_url else '?'
             final_url = f"{final_url}{separator}{query}"
 

@@ -144,4 +144,11 @@ SCHEMA_STATEMENTS = [
         FOREIGN KEY(run_id) REFERENCES recommendation_runs(run_id)
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS illust_related_cache (
+        cache_key TEXT PRIMARY KEY,
+        fetched_at_epoch INTEGER NOT NULL,
+        result_user_ids TEXT NOT NULL DEFAULT '[]'
+    )
+    """,
 ]

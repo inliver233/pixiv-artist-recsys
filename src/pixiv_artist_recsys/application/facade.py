@@ -340,6 +340,7 @@ class ApplicationFacade:
         access_token: str | None = None,
         max_related_per_artist: int = 5,
         max_related_per_illust: int = 5,
+        max_illusts_for_related: int | None = None,
         max_seed_artists: int = 90,
         seed_sample: str = 'random',
         enable_user_recommended: bool = True,
@@ -371,6 +372,9 @@ class ApplicationFacade:
             seed_user_id=seed_user_id,
             max_related_per_artist=max_related_per_artist,
             max_related_per_illust=max_related_per_illust,
+            max_illusts_for_related=(
+                settings.max_illusts_for_related if max_illusts_for_related is None else max_illusts_for_related
+            ),
             max_seed_artists=max_seed_artists,
             seed_sample=seed_sample,
             enable_user_recommended=enable_user_recommended,
@@ -501,6 +505,7 @@ class ApplicationFacade:
         candidate_artist_limit: int = 10,
         max_related_per_artist: int = 16,
         max_related_per_illust: int = 16,
+        max_illusts_for_related: int | None = None,
         max_seed_artists: int = 600,
         max_candidate_artists: int = 2000,
         seed_sample: str = 'quality_first',
@@ -578,6 +583,9 @@ class ApplicationFacade:
                 candidate_artist_limit=candidate_artist_limit,
                 max_related_per_artist=max_related_per_artist,
                 max_related_per_illust=max_related_per_illust,
+                max_illusts_for_related=(
+                    settings.max_illusts_for_related if max_illusts_for_related is None else max_illusts_for_related
+                ),
                 max_seed_artists=max_seed_artists,
                 max_candidate_artists=max_candidate_artists,
                 seed_sample=seed_sample,

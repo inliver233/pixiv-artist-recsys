@@ -66,7 +66,7 @@ class FakeFullRecommendClient:
             total_illust_bookmarks_public=99,
         )
 
-    def fetch_illust_related(self, *, illust_id: int):
+    def fetch_illust_related(self, *, illust_id: int, seed_illust_ids: list[int] | None = None):
         mapping = {
             10011: [PixivIllustSummary(illust_id=20011, user_id=2001, title='related-a')],
             10012: [PixivIllustSummary(illust_id=20012, user_id=2001, title='related-a-2')],

@@ -21,6 +21,7 @@ class SeedJobRequest:
     candidate_artist_limit: int = 10
     max_related_per_artist: int = 16
     max_related_per_illust: int = 16
+    max_illusts_for_related: int | None = None
     max_seed_artists: int = 600
     max_candidate_artists: int = 2000
     seed_sample: str = 'quality_first'
@@ -79,6 +80,7 @@ class SeedJobRequest:
             candidate_artist_limit=int(payload.get('candidate_artist_limit', 10)),
             max_related_per_artist=int(payload.get('max_related_per_artist', 16)),
             max_related_per_illust=int(payload.get('max_related_per_illust', 16)),
+            max_illusts_for_related=_optional_int(payload.get('max_illusts_for_related')),
             max_seed_artists=int(payload.get('max_seed_artists', 600)),
             max_candidate_artists=int(payload.get('max_candidate_artists', 2000)),
             seed_sample=seed_sample,
@@ -149,6 +151,7 @@ class SeedJobRunner:
             candidate_artist_limit=request.candidate_artist_limit,
             max_related_per_artist=request.max_related_per_artist,
             max_related_per_illust=request.max_related_per_illust,
+            max_illusts_for_related=request.max_illusts_for_related,
             max_seed_artists=request.max_seed_artists,
             max_candidate_artists=request.max_candidate_artists,
             seed_sample=request.seed_sample,

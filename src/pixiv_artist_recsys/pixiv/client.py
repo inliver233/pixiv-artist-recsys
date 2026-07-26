@@ -67,8 +67,18 @@ class PixivAppApiClient:
         items = [self._parse_user_preview(item) for item in previews or []]
         return PagedResult(items=items, next_url=payload.get('next_url') if isinstance(payload, dict) else None)
 
-    def fetch_illust_related(self, *, illust_id: int) -> PagedResult[PixivIllustSummary]:
-        payload = self._get_json(ILLUST_RELATED_PATH, params={'illust_id': illust_id})
+    def fetch_illust_related(
+        self,
+        *,
+        illust_id: int,
+        seed_illust_ids: list[int] | None = None,
+    ) -> PagedResult[PixivIllustSummary]:
+        # seed_illust_ids[] lets one request fuse several seed illusts (server-side
+        # item CF) instead of one request per illust.
+        params: dict[str, object] = {'illust_id': illust_id}
+        if seed_illust_ids:
+            params['seed_illust_ids[]'] = [int(v) for v in seed_illust_ids]
+        payload = self._get_json(ILLUST_RELATED_PATH, params=params)
         illusts = payload.get('illusts') if isinstance(payload, dict) else None
         items = [self._parse_illust_summary(item) for item in illusts or []]
         return PagedResult(items=items, next_url=payload.get('next_url') if isinstance(payload, dict) else None)

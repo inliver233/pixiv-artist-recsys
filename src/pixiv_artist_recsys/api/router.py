@@ -191,6 +191,7 @@ class ApiRouter:
                     candidate_artist_limit=self._optional_body_int(body, 'candidate_artist_limit', default=recommendation.candidate_artist_limit) or recommendation.candidate_artist_limit,
                     max_related_per_artist=self._optional_body_int(body, 'max_related_per_artist', default=recommendation.max_related_per_artist) or recommendation.max_related_per_artist,
                     max_related_per_illust=self._optional_body_int(body, 'max_related_per_illust', default=recommendation.max_related_per_illust) or recommendation.max_related_per_illust,
+                    max_illusts_for_related=self._optional_body_int(body, 'max_illusts_for_related', default=recommendation.max_illusts_for_related) or recommendation.max_illusts_for_related,
                     max_seed_artists=self._optional_body_int(body, 'max_seed_artists', default=recommendation.max_seed_artists) or recommendation.max_seed_artists,
                     max_candidate_artists=self._optional_body_int(body, 'max_candidate_artists', default=recommendation.max_candidate_artists) or recommendation.max_candidate_artists,
                     seed_sample=self._optional_body_text(body, 'seed_sample', default=recommendation.seed_sample) or recommendation.seed_sample,

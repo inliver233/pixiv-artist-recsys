@@ -63,6 +63,9 @@ class RecommendationConfig:
     candidate_artist_limit: int = 10
     max_related_per_artist: int = 16
     max_related_per_illust: int = 16
+    # How many top local illusts seed the (batched) illust_related lookup per artist.
+    # Decoupled from max_related_per_artist: that knob is width, this one is HTTP cost.
+    max_illusts_for_related: int = 4
     max_seed_artists: int = 600
     max_candidate_artists: int = 2000
     max_user_recommended: int = 100
@@ -191,6 +194,7 @@ def load_settings(*, env: Mapping[str, str] | None = None) -> AppSettings:
             candidate_artist_limit=_env_int(env, "PIXIV_ARTIST_RECSYS_CANDIDATE_ARTIST_LIMIT", recommendation_defaults.candidate_artist_limit),
             max_related_per_artist=_env_int(env, "PIXIV_ARTIST_RECSYS_MAX_RELATED_PER_ARTIST", recommendation_defaults.max_related_per_artist),
             max_related_per_illust=_env_int(env, "PIXIV_ARTIST_RECSYS_MAX_RELATED_PER_ILLUST", recommendation_defaults.max_related_per_illust),
+            max_illusts_for_related=_env_int(env, "PIXIV_ARTIST_RECSYS_MAX_ILLUSTS_FOR_RELATED", recommendation_defaults.max_illusts_for_related),
             max_seed_artists=_env_int(env, "PIXIV_ARTIST_RECSYS_MAX_SEED_ARTISTS", recommendation_defaults.max_seed_artists),
             max_candidate_artists=_env_int(env, "PIXIV_ARTIST_RECSYS_MAX_CANDIDATE_ARTISTS", recommendation_defaults.max_candidate_artists),
             max_user_recommended=_env_int(env, "PIXIV_ARTIST_RECSYS_MAX_USER_RECOMMENDED", recommendation_defaults.max_user_recommended),

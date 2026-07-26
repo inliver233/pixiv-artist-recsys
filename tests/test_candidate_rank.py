@@ -15,7 +15,7 @@ class FakeRelatedClient:
     def fetch_user_related(self, *, seed_user_id: int, offset: int | None = None):
         return PagedResult(items=[PixivUserSummary(user_id=2001 + seed_user_id, name=f'user-rel-{seed_user_id}')], next_url=None)
 
-    def fetch_illust_related(self, *, illust_id: int):
+    def fetch_illust_related(self, *, illust_id: int, seed_illust_ids: list[int] | None = None):
         return PagedResult(items=[PixivIllustSummary(illust_id=3000 + illust_id, user_id=4000 + illust_id, title='rel-illust')], next_url=None)
 
     def fetch_user_recommended(self, *, offset: int | None = None):
@@ -148,6 +148,64 @@ class CandidateRetrievalTests(unittest.TestCase):
             self.assertEqual(client.following_calls[0]['user_id'], 1001)
             self.assertEqual(client.following_calls[0]['restrict'], 'public')
             self.assertGreaterEqual(result.candidate_count, 4)
+
+    def test_illust_related_batches_seeds_and_caches_result(self) -> None:
+        class CountingRelatedClient(FakeRelatedClient):
+            def __init__(self) -> None:
+                self.related_calls: list[dict[str, object]] = []
+
+            def fetch_illust_related(self, *, illust_id: int, seed_illust_ids: list[int] | None = None):
+                self.related_calls.append({'illust_id': illust_id, 'seed_illust_ids': seed_illust_ids})
+                return PagedResult(
+                    items=[
+                        PixivIllustSummary(illust_id=8801, user_id=8801, title='rel-a'),
+                        PixivIllustSummary(illust_id=8802, user_id=8802, title='rel-b'),
+                        PixivIllustSummary(illust_id=8803, user_id=8801, title='rel-a-dup'),
+                    ],
+                    next_url=None,
+                )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = RecommendationRepository(SQLiteDatabase(Path(tmpdir) / 'cand-batch.sqlite3'))
+            repo.initialize()
+            repo.upsert_seed_user(SeedUser(user_id=7, refresh_token_ref='masked:token'))
+            repo.upsert_artist(Artist(user_id=1001, name='artist-1', is_followed=True))
+            repo.upsert_following_edge(seed_user_id=7, artist_user_id=1001)
+            for i, bm in enumerate([90, 80, 70, 60, 50], start=1):
+                repo.upsert_illust(Illust(illust_id=500 + i, user_id=1001, title=f'seed-{i}', total_bookmarks=bm))
+
+            clock = {'now': 1000.0}
+            client = CountingRelatedClient()
+            service = RelatedArtistCandidateService(
+                repository=repo, pixiv_client=client, now_fn=lambda: clock['now']
+            )
+            kwargs = dict(
+                seed_user_id=7,
+                max_illusts_for_related=3,
+                enable_user_recommended=False,
+                enable_tag_search=False,
+                enable_seed_following=False,
+            )
+            service.build_candidates(**kwargs)
+
+            # One request for the artist, top-3 illusts fused via seed_illust_ids.
+            self.assertEqual(len(client.related_calls), 1)
+            call = client.related_calls[0]
+            sent = {int(call['illust_id']), *(call['seed_illust_ids'] or [])}
+            self.assertEqual(sent, {501, 502, 503})
+            evidence = repo.fetch_artist_candidates(seed_user_id=7)
+            related_rows = [row for row in evidence if row[1] == 'illust_related']
+            self.assertEqual({row[0] for row in related_rows}, {8801, 8802})
+
+            # Second run within TTL: cache hit, no extra request.
+            clock['now'] += 3600.0
+            service.build_candidates(**kwargs)
+            self.assertEqual(len(client.related_calls), 1)
+
+            # After TTL expiry the request is re-issued.
+            clock['now'] += 8 * 86400.0
+            service.build_candidates(**kwargs)
+            self.assertEqual(len(client.related_calls), 2)
 
     def test_seed_following_sample_modes(self) -> None:
         service = RelatedArtistCandidateService(repository=object(), pixiv_client=FakeRelatedClient())  # type: ignore[arg-type]

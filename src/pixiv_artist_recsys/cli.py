@@ -77,6 +77,12 @@ def _add_recommendation_args(parser: argparse.ArgumentParser, *, settings, inclu
     parser.add_argument('--max-related-per-artist', type=int, default=rec.max_related_per_artist)
     parser.add_argument('--max-related-per-illust', type=int, default=rec.max_related_per_illust)
     parser.add_argument(
+        '--max-illusts-for-related',
+        type=int,
+        default=rec.max_illusts_for_related,
+        help='Top local illusts per seed artist used as batched illust_related seeds (HTTP cost knob)',
+    )
+    parser.add_argument(
         '--max-seed-artists',
         type=int,
         default=rec.max_seed_artists,
@@ -292,6 +298,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_pixiv_token_args(build_candidates)
     build_candidates.add_argument('--max-related-per-artist', type=int, default=rec.max_related_per_artist)
     build_candidates.add_argument('--max-related-per-illust', type=int, default=rec.max_related_per_illust)
+    build_candidates.add_argument('--max-illusts-for-related', type=int, default=rec.max_illusts_for_related)
     build_candidates.add_argument('--max-seed-artists', type=int, default=rec.max_seed_artists)
     build_candidates.add_argument(
         '--seed-sample',
@@ -597,6 +604,7 @@ def cmd_build_candidates(
     max_related_per_illust: int,
     max_seed_artists: int,
     seed_sample: str = 'random',
+    max_illusts_for_related: int | None = None,
     enable_user_recommended: bool,
     max_user_recommended: int,
     enable_tag_search: bool,
@@ -616,6 +624,7 @@ def cmd_build_candidates(
             access_token=access_token,
             max_related_per_artist=max_related_per_artist,
             max_related_per_illust=max_related_per_illust,
+            max_illusts_for_related=max_illusts_for_related,
             max_seed_artists=max_seed_artists,
             seed_sample=seed_sample,
             enable_user_recommended=enable_user_recommended,
@@ -683,6 +692,7 @@ def cmd_full_recommend(
     max_seed_artists: int,
     max_candidate_artists: int,
     seed_sample: str = 'random',
+    max_illusts_for_related: int | None = None,
     enable_user_recommended: bool,
     max_user_recommended: int,
     enable_tag_search: bool,
@@ -724,6 +734,7 @@ def cmd_full_recommend(
             candidate_artist_limit=candidate_artist_limit,
             max_related_per_artist=max_related_per_artist,
             max_related_per_illust=max_related_per_illust,
+            max_illusts_for_related=max_illusts_for_related,
             max_seed_artists=max_seed_artists,
             max_candidate_artists=max_candidate_artists,
             seed_sample=seed_sample,
@@ -1096,6 +1107,7 @@ def main(argv: list[str] | None = None) -> int:
                 access_token=args.access_token,
                 max_related_per_artist=args.max_related_per_artist,
                 max_related_per_illust=args.max_related_per_illust,
+                max_illusts_for_related=getattr(args, 'max_illusts_for_related', None),
                 max_seed_artists=args.max_seed_artists,
                 seed_sample=args.seed_sample,
                 enable_user_recommended=args.enable_user_recommended,
@@ -1137,6 +1149,7 @@ def main(argv: list[str] | None = None) -> int:
                 candidate_artist_limit=args.candidate_artist_limit,
                 max_related_per_artist=args.max_related_per_artist,
                 max_related_per_illust=args.max_related_per_illust,
+                max_illusts_for_related=getattr(args, 'max_illusts_for_related', None),
                 max_seed_artists=args.max_seed_artists,
                 max_candidate_artists=args.max_candidate_artists,
                 seed_sample=args.seed_sample,

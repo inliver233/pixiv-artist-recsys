@@ -23,6 +23,7 @@ class LiveRecommendationRequest:
     candidate_artist_limit: int = 10
     max_related_per_artist: int = 16
     max_related_per_illust: int = 16
+    max_illusts_for_related: int = 4
     max_seed_artists: int = 600
     max_candidate_artists: int = 2000
     seed_sample: str = 'quality_first'
@@ -159,6 +160,7 @@ class LiveRecommendationPipeline:
             seed_user_id=request.seed_user_id,
             max_related_per_artist=request.max_related_per_artist,
             max_related_per_illust=request.max_related_per_illust,
+            max_illusts_for_related=request.max_illusts_for_related,
             max_seed_artists=request.max_seed_artists,
             seed_sample=request.seed_sample,
             enable_user_recommended=request.enable_user_recommended,

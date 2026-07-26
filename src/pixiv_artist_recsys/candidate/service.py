@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
+from typing import Callable
 
 from ..domain.models import Artist
 from ..pixiv import PixivAppApiClient
 from ..storage.repositories import RecommendationRepository
 from ..utils.progress import ProgressCallback, emit
 from ..utils.sampling import hash_sample_ids, sample_ids
+
+# illust_related responses are stable enough to reuse for a week.
+ILLUST_RELATED_CACHE_TTL_S = 7 * 86400.0
 
 
 # Evidence weights (ranker further damps by source reliability).
@@ -45,9 +50,18 @@ class CandidateArtistResult:
 
 
 class RelatedArtistCandidateService:
-    def __init__(self, *, repository: RecommendationRepository, pixiv_client: PixivAppApiClient) -> None:
+    def __init__(
+        self,
+        *,
+        repository: RecommendationRepository,
+        pixiv_client: PixivAppApiClient,
+        now_fn: Callable[[], float] | None = None,
+        illust_related_cache_ttl_s: float = ILLUST_RELATED_CACHE_TTL_S,
+    ) -> None:
         self.repository = repository
         self.pixiv_client = pixiv_client
+        self.now_fn = now_fn or time.time
+        self.illust_related_cache_ttl_s = float(illust_related_cache_ttl_s)
 
     def build_candidates(
         self,
@@ -55,6 +69,7 @@ class RelatedArtistCandidateService:
         seed_user_id: int,
         max_related_per_artist: int = 8,
         max_related_per_illust: int = 8,
+        max_illusts_for_related: int = 4,
         max_seed_artists: int = 40,
         seed_sample: str = 'random',
         enable_user_recommended: bool = True,
@@ -118,21 +133,36 @@ class RelatedArtistCandidateService:
                     detail=f'related-to-user:{artist_id}',
                 )
 
-            for illust_id in self.repository.list_illust_ids_for_artist(artist_user_id=artist_id)[:max_related_per_artist]:
-                related_illusts = self.pixiv_client.fetch_illust_related(illust_id=illust_id)
-                for illust in related_illusts.items[:max_related_per_illust]:
-                    if illust.user_id in followed_artist_ids or illust.user_id <= 0 or illust.user_id == seed_user_id:
-                        continue
-                    if illust.user_id not in hydrated_artist_cache:
-                        existing = self.repository.fetch_artist(artist_user_id=illust.user_id)
-                        hydrated_artist_cache[illust.user_id] = existing or Artist(
-                            user_id=illust.user_id,
-                            name=f'artist-{illust.user_id}',
-                            is_followed=False,
-                        )
-                    evidence_rows.append(
-                        (illust.user_id, 'illust_related', f'illust:{illust_id}', WEIGHT_ILLUST_RELATED, f'related-to-illust:{illust_id}')
+            # One batched illust_related request per seed artist (seed_illust_ids[]
+            # fuses top illusts server-side) instead of one request per illust,
+            # with a 7-day result cache. max_illusts_for_related bounds the seed
+            # illust count; max_related_per_artist no longer doubles as that knob.
+            related_seed_ids = self.repository.list_illust_ids_for_artist(
+                artist_user_id=artist_id,
+                limit=max(0, int(max_illusts_for_related)),
+            )
+            for related_user_id in self._related_user_ids_for_illusts(
+                illust_ids=related_seed_ids,
+                max_users=max_related_per_illust,
+            ):
+                if related_user_id in followed_artist_ids or related_user_id <= 0 or related_user_id == seed_user_id:
+                    continue
+                if related_user_id not in hydrated_artist_cache:
+                    existing = self.repository.fetch_artist(artist_user_id=related_user_id)
+                    hydrated_artist_cache[related_user_id] = existing or Artist(
+                        user_id=related_user_id,
+                        name=f'artist-{related_user_id}',
+                        is_followed=False,
                     )
+                evidence_rows.append(
+                    (
+                        related_user_id,
+                        'illust_related',
+                        f'illust-batch:{artist_id}',
+                        WEIGHT_ILLUST_RELATED,
+                        f'related-to-illusts-of:{artist_id}',
+                    )
+                )
 
             emit(
                 on_progress,
@@ -340,6 +370,39 @@ class RelatedArtistCandidateService:
             candidate_count=candidate_count,
             evidence_count=evidence_count,
         )
+
+    def _related_user_ids_for_illusts(self, *, illust_ids: list[int], max_users: int) -> list[int]:
+        """Distinct related-artist ids for a seed artist's top illusts.
+
+        One batched API request (seed_illust_ids[]) for all illusts, cached in
+        SQLite with a TTL so repeat rounds over the same seeds cost zero requests.
+        """
+        ids = sorted({int(i) for i in illust_ids if int(i) > 0})
+        if not ids or max_users <= 0:
+            return []
+        cache_key = ','.join(str(i) for i in ids)
+        now = float(self.now_fn())
+        cached = self.repository.get_illust_related_cache(
+            cache_key=cache_key,
+            max_age_s=self.illust_related_cache_ttl_s,
+            now_epoch=now,
+        )
+        if cached is not None:
+            return cached[: max(0, int(max_users))]
+        if len(ids) > 1:
+            page = self.pixiv_client.fetch_illust_related(illust_id=ids[0], seed_illust_ids=ids[1:])
+        else:
+            page = self.pixiv_client.fetch_illust_related(illust_id=ids[0])
+        user_ids: list[int] = []
+        seen: set[int] = set()
+        for illust in page.items:
+            uid = int(getattr(illust, 'user_id', 0) or 0)
+            if uid <= 0 or uid in seen:
+                continue
+            seen.add(uid)
+            user_ids.append(uid)
+        self.repository.put_illust_related_cache(cache_key=cache_key, user_ids=user_ids, now_epoch=now)
+        return user_ids[: max(0, int(max_users))]
 
     def _followed_quality_scores(self, followed_artist_ids: set[int] | list[int]) -> dict[int, float]:
         ids = [int(artist_id) for artist_id in followed_artist_ids]
