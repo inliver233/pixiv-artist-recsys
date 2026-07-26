@@ -82,6 +82,49 @@ class IngestTests(unittest.TestCase):
             fourth = service.sync_following(seed_user_id=7, refresh_token_ref='masked:token', skip_if_fresh_s=86400.0)
             self.assertFalse(fourth.skipped_fresh)
 
+    def test_following_sync_incremental_early_stop(self) -> None:
+        class PagedKnownClient:
+            """3 pages of 30; page 1 has 5 new + 25 known, rest all known."""
+
+            def __init__(self) -> None:
+                self.calls: list[int | None] = []
+
+            def fetch_following_users(self, *, user_id: int, restrict: str = 'public', offset: int | None = None):
+                self.calls.append(offset)
+                start = offset or 0
+                if start >= 90:
+                    return PagedResult(items=[], next_url=None)
+                items = []
+                for i in range(start, start + 30):
+                    # First five entries are brand-new follows; everything else known.
+                    uid = 9000 + i if i < 5 else 3000 + i
+                    items.append(PixivUserSummary(user_id=uid, name=f'a-{uid}'))
+                return PagedResult(items=items, next_url='next' if start + 30 < 90 else None)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repository = RecommendationRepository(SQLiteDatabase(Path(tmpdir) / 'ingest-incr.sqlite3'))
+            repository.initialize()
+            from pixiv_artist_recsys.domain.models import Artist
+            # Pre-existing known edges 3005..3089 (85 edges ≥ MIN_EDGES_FOR_SKIP).
+            for i in range(5, 90):
+                repository.upsert_artist(Artist(user_id=3000 + i, name=f'a-{i}', is_followed=True))
+                repository.upsert_following_edge(seed_user_id=7, artist_user_id=3000 + i)
+
+            client = PagedKnownClient()
+            service = FollowingSyncService(repository=repository, pixiv_client=client)
+            result = service.sync_following(
+                seed_user_id=7,
+                refresh_token_ref='masked:token',
+                incremental_stop_after=20,
+            )
+            # 25 consecutive known on page 1 crosses the threshold → stop after 1 page.
+            self.assertEqual(result.pages_fetched, 1)
+            self.assertEqual(len(client.calls), 1)
+            # New follows were still recorded.
+            following = repository.list_following_artist_ids(seed_user_id=7)
+            for uid in (9000, 9001, 9002, 9003, 9004):
+                self.assertIn(uid, following)
+
     def test_following_sync_preserves_existing_seed_preferences(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             repository = RecommendationRepository(SQLiteDatabase(Path(tmpdir) / 'ingest-prefs.sqlite3'))

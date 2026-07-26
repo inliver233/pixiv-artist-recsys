@@ -82,6 +82,7 @@ class RelatedArtistCandidateService:
         max_following_per_seed_artist: int = 30,
         seed_following_sample: str = 'random',
         seed_following_restrict: str = 'public',
+        seed_following_max_pages: int = 4,
         merge_candidates: bool = False,
         sample_salt: int | str | None = None,
         explore_ratio: float = 0.25,
@@ -199,16 +200,21 @@ class RelatedArtistCandidateService:
                 sample_mode=seed_following_sample,
             )
             per_cap = max(0, int(max_following_per_seed_artist))
+            # Page cap: already-followed users do not count toward taken, so a
+            # high-overlap artist could otherwise be paged unboundedly (P-9).
+            page_cap = max(1, int(seed_following_max_pages))
             for expand_index, artist_id in enumerate(expand_ids, start=1):
                 taken = 0
                 offset = 0
+                pages_fetched = 0
                 try:
-                    while taken < per_cap:
+                    while taken < per_cap and pages_fetched < page_cap:
                         page = self.pixiv_client.fetch_following_users(
                             user_id=artist_id,
                             restrict=seed_following_restrict or 'public',
                             offset=offset if offset else None,
                         )
+                        pages_fetched += 1
                         if not page.items:
                             break
                         for user in page.items:

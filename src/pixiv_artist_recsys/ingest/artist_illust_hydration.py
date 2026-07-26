@@ -24,6 +24,7 @@ class ArtistIllustHydrationResult:
     detail_fetches: int = 0
     list_only_saves: int = 0
     skipped_fresh: int = 0
+    failed_artists: int = 0
 
 
 class ArtistIllustHydrationService:
@@ -191,20 +192,56 @@ class ArtistIllustHydrationService:
         illusts_upserted = 0
         detail_fetches = 0
         list_only_saves = 0
+        failed_artists = 0
         for index, artist_user_id in enumerate(artist_user_ids, start=1):
-            page = self.pixiv_client.fetch_user_illusts(user_id=artist_user_id)
+            # Per-artist fault tolerance: one deleted/404 account must not sink
+            # a run that already spent hours (retry layer only covers 429/5xx).
+            try:
+                page = self.pixiv_client.fetch_user_illusts(user_id=artist_user_id)
+            except Exception as exc:  # noqa: BLE001 - single-artist failure is survivable
+                failed_artists += 1
+                emit(
+                    on_progress,
+                    stage=stage,
+                    event='info',
+                    message=f'{scope} artist {index}/{total} id={artist_user_id} skipped ({type(exc).__name__})',
+                    artist_user_id=artist_user_id,
+                    scope=scope,
+                    failed_artists=failed_artists,
+                )
+                continue
             artist_illusts = 0
             # Fetch details first, then persist the artist's batch in one transaction.
             details_by_illust: dict[int, object] = {}
             selected = list(page.items[:per_artist_limit])
+            detail_failed = False
             for summary in selected:
                 # user_illusts list payload usually already has tags + ai/r18 flags.
                 # Skip illust/detail when tags are present → ~half the hydrate API volume.
                 if not summary.tags:
-                    details_by_illust[summary.illust_id] = self.pixiv_client.fetch_illust_detail(
-                        illust_id=summary.illust_id
-                    )
+                    try:
+                        details_by_illust[summary.illust_id] = self.pixiv_client.fetch_illust_detail(
+                            illust_id=summary.illust_id
+                        )
+                    except Exception as exc:  # noqa: BLE001 - skip this artist, keep the run
+                        detail_failed = True
+                        failed_artists += 1
+                        emit(
+                            on_progress,
+                            stage=stage,
+                            event='info',
+                            message=(
+                                f'{scope} artist {index}/{total} id={artist_user_id} '
+                                f'detail fetch failed ({type(exc).__name__}), skipped'
+                            ),
+                            artist_user_id=artist_user_id,
+                            scope=scope,
+                            failed_artists=failed_artists,
+                        )
+                        break
                     detail_fetches += 1
+            if detail_failed:
+                continue
             with self.repository.transaction():
                 self.repository.mark_artist_hydrated(
                     artist_user_id=artist_user_id, now_epoch=float(self.now_fn())
@@ -271,6 +308,7 @@ class ArtistIllustHydrationService:
             detail_fetches=detail_fetches,
             list_only_saves=list_only_saves,
             skipped_fresh=skipped_fresh,
+            failed_artists=failed_artists,
         )
 
     def _upsert_from_summary(self, summary: PixivIllustSummary) -> None:

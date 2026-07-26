@@ -44,6 +44,7 @@ class FollowingSyncService:
         allow_ai: bool | None = None,
         allow_r18: bool | None = None,
         skip_if_fresh_s: float | None = None,
+        incremental_stop_after: int = 0,
         on_progress: ProgressCallback | None = None,
     ) -> FollowingSyncResult:
         if skip_if_fresh_s is not None and skip_if_fresh_s > 0:
@@ -85,10 +86,21 @@ class FollowingSyncService:
             restrict=restrict,
         )
 
+        # Incremental early stop: Pixiv returns the following list newest-first,
+        # so after N consecutive already-known ids the rest of the ~87 pages is
+        # guaranteed re-sync tax. Only meaningful when known edges exist.
+        known_ids: set[int] = set()
+        stop_after = max(0, int(incremental_stop_after))
+        if stop_after > 0:
+            known_ids = set(self.repository.list_following_artist_ids(seed_user_id=seed_user_id))
+            if len(known_ids) < MIN_EDGES_FOR_SKIP:
+                stop_after = 0
+
         pages = 0
         synced_count = 0
         for mode in restrict_modes:
             offset = 0
+            consecutive_known = 0
             while True:
                 page = self.pixiv_client.fetch_following_users(user_id=seed_user_id, restrict=mode, offset=offset)
                 pages += 1
@@ -108,6 +120,25 @@ class FollowingSyncService:
                         )
                         self.repository.upsert_following_edge(seed_user_id=seed_user_id, artist_user_id=item.user_id)
                         synced_count += 1
+                        if stop_after > 0:
+                            if item.user_id in known_ids:
+                                consecutive_known += 1
+                            else:
+                                consecutive_known = 0
+                if stop_after > 0 and consecutive_known >= stop_after:
+                    emit(
+                        on_progress,
+                        stage='following_sync',
+                        event='info',
+                        message=(
+                            f'{mode}: early stop after {consecutive_known} consecutive known ids '
+                            f'(page {pages})'
+                        ),
+                        restrict_mode=mode,
+                        pages_fetched=pages,
+                        consecutive_known=consecutive_known,
+                    )
+                    break
                 emit(
                     on_progress,
                     stage='following_sync',

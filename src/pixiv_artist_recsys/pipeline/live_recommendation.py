@@ -55,6 +55,9 @@ class LiveRecommendationRequest:
     explore_ratio: float = 0.25
     # Skip full following resync when edges exist and last sync is younger than this (0 = always sync).
     skip_sync_if_fresh_s: float = 0.0
+    # Stop paging the following list after N consecutive already-known ids (0 = full sync).
+    # Newest-first ordering makes anything past the first known run pure re-sync tax.
+    following_incremental_stop_after: int = 60
     persist_run: bool = True
     mode: str = 'live-heuristic'
 
@@ -129,6 +132,7 @@ class LiveRecommendationPipeline:
             allow_ai=request.allow_ai,
             allow_r18=request.allow_r18,
             skip_if_fresh_s=request.skip_sync_if_fresh_s or None,
+            incremental_stop_after=request.following_incremental_stop_after,
             on_progress=on_progress,
         )
 

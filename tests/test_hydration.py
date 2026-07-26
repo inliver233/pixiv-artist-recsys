@@ -154,6 +154,33 @@ class SkipIfFreshTests(unittest.TestCase):
             self.assertEqual(result.skipped_fresh, 0)
 
 
+class FaultToleranceTests(unittest.TestCase):
+    def test_one_failing_artist_does_not_sink_the_run(self) -> None:
+        class FlakyClient(FakeHydrationClient):
+            def fetch_user_illusts(self, *, user_id: int, type_: str = 'illust', offset: int | None = None):
+                if user_id == 1002:
+                    raise RuntimeError('404 user deleted')
+                return super().fetch_user_illusts(user_id=user_id, type_=type_, offset=offset)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = RecommendationRepository(SQLiteDatabase(Path(tmpdir) / 'fault.sqlite3'))
+            repo.initialize()
+            repo.upsert_seed_user(SeedUser(user_id=7, refresh_token_ref='masked:token'))
+            for artist_id in (1001, 1002, 1003):
+                repo.upsert_artist(Artist(user_id=artist_id, name=f'artist-{artist_id}', is_followed=True))
+                repo.upsert_following_edge(seed_user_id=7, artist_user_id=artist_id)
+
+            result = ArtistIllustHydrationService(
+                repository=repo,
+                pixiv_client=FlakyClient(list_tags=['tag-a']),
+            ).hydrate_followed_artists(seed_user_id=7)
+
+            self.assertEqual(result.failed_artists, 1)
+            self.assertEqual(result.illusts_upserted, 2)
+            self.assertEqual(sorted(repo.fetch_artist_tags(artist_user_id=1001)), ['tag-a'])
+            self.assertEqual(sorted(repo.fetch_artist_tags(artist_user_id=1003)), ['tag-a'])
+
+
 class CandidateHydrationTests(unittest.TestCase):
     def test_hydrate_candidate_artists_skips_followed_and_deduplicates(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
