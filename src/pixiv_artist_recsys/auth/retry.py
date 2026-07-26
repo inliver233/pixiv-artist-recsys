@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import random
 import time
 from dataclasses import dataclass
@@ -69,13 +70,14 @@ class RetryingHttpTransport:
                 self._sleep(attempt, response=None)
                 continue
 
-            if response.status_code not in self.policy.retryable_status_codes:
+            rate_limited = self._is_rate_limited(response)
+            if response.status_code not in self.policy.retryable_status_codes and not rate_limited:
                 return response
 
             last_response = response
             if attempt >= attempts:
                 return response
-            self._sleep(attempt, response=response)
+            self._sleep(attempt, response=response, force_rate_limit=rate_limited)
 
         if last_response is not None:
             return last_response
@@ -83,10 +85,11 @@ class RetryingHttpTransport:
             raise last_error
         raise RuntimeError('Retry transport exhausted without response')
 
-    def _sleep(self, attempt: int, *, response: HttpResponse | None) -> None:
+    def _sleep(self, attempt: int, *, response: HttpResponse | None, force_rate_limit: bool = False) -> None:
         delay = min(self.policy.max_delay_s, self.policy.base_delay_s * (2 ** (attempt - 1)))
-        # 429: honour Retry-After when present; otherwise back off more aggressively.
-        if response is not None and int(response.status_code) == 429:
+        # Rate limit (HTTP 429 or JSON-body "Rate Limit" on a 200/403):
+        # honour Retry-After when present; otherwise back off more aggressively.
+        if response is not None and (int(response.status_code) == 429 or force_rate_limit):
             retry_after = self._parse_retry_after(response.headers)
             if retry_after is not None:
                 delay = max(delay, retry_after)
@@ -96,6 +99,26 @@ class RetryingHttpTransport:
             delay += max(0.0, float(self.random_fn(0.0, self.policy.jitter_s)))
         if delay > 0:
             self.sleep_fn(delay)
+
+    @staticmethod
+    def _is_rate_limited(response: HttpResponse) -> bool:
+        """Pixiv reports rate limits in the JSON body, not always via HTTP 429."""
+        if int(response.status_code) == 429:
+            return True
+        text = response.text or ''
+        if 'Rate Limit' not in text and 'rate limit' not in text:
+            return False
+        try:
+            payload = json.loads(text)
+        except ValueError:
+            return False
+        if not isinstance(payload, dict):
+            return False
+        err = payload.get('error')
+        if not isinstance(err, dict):
+            return False
+        message = str(err.get('message') or '')
+        return 'rate limit' in message.lower()
 
     @staticmethod
     def _parse_retry_after(headers: Mapping[str, str] | None) -> float | None:

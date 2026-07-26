@@ -3,7 +3,7 @@ from .coordinator import PixivTokenCoordinator
 from .models import PixivOAuthConfig, PixivOAuthToken, PixivTokenRecord
 from .retry import RetryPolicy, RetryingHttpTransport
 from .service import PixivOAuthError, PixivOAuthService
-from .transport import HttpResponse, HttpTransport, UrllibHttpTransport
+from .transport import HttpResponse, HttpTransport, PooledHttpTransport, UrllibHttpTransport
 
 __all__ = [
     "AccessTokenCache",
@@ -17,5 +17,6 @@ __all__ = [
     "RetryingHttpTransport",
     "HttpResponse",
     "HttpTransport",
+    "PooledHttpTransport",
     "UrllibHttpTransport",
 ]

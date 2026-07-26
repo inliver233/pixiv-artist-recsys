@@ -7,7 +7,7 @@ from typing import Any, Mapping
 
 from .auth import AccessTokenCache, PixivOAuthService, PixivTokenCoordinator
 from .auth.models import PixivTokenRecord
-from .auth.transport import HttpTransport, UrllibHttpTransport
+from .auth.transport import HttpTransport
 from .config import AppSettings, load_settings
 from .pixiv import CoordinatorBackedAccessTokenProvider, PixivAppApiClient, StaticAccessTokenProvider
 from .proxy import ProxyPool, build_http_transport_from_env
@@ -34,7 +34,7 @@ class AppRuntime:
         settings = settings or load_settings(env=env_mapping)
         transport, proxy_pool = build_http_transport_from_env(
             env_mapping,
-            base_transport=base_transport or UrllibHttpTransport(),
+            base_transport=base_transport,
             now_fn=now_fn,
         )
         # persistent=False: short-lived CLI/API processes must release the file lock

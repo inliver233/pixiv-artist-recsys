@@ -74,6 +74,8 @@ class FakePixivTransport:
                 ],
                 'next_url': None,
             }))
+        if url.endswith('/v2/illust/related'):
+            return HttpResponse(200, {}, json.dumps({'illusts': [], 'next_url': None}))
         return HttpResponse(404, {}, '{}')
 
 
@@ -108,6 +110,24 @@ class PixivClientTests(unittest.TestCase):
         search_call = next(call for call in transport.calls if str(call['url']).endswith('/v1/search/illust'))
         self.assertEqual(search_call['params']['word'], 'blue hair')
         self.assertEqual(search_call['params']['sort'], 'popular_desc')
+
+    def test_client_sends_app_identity_headers(self) -> None:
+        transport = FakePixivTransport()
+        client = PixivAppApiClient(access_token_provider=StaticAccessTokenProvider('token-abc'), transport=transport)
+        client.fetch_user_detail(user_id=101)
+        headers = transport.calls[0]['headers']
+        self.assertIn('PixivAndroidApp', headers['User-Agent'])
+        self.assertEqual(headers['App-OS'], 'android')
+        self.assertTrue(headers['App-Version'])
+        self.assertTrue(headers['App-OS-Version'])
+
+    def test_illust_related_passes_batch_seed_param(self) -> None:
+        transport = FakePixivTransport()
+        client = PixivAppApiClient(access_token_provider=StaticAccessTokenProvider('token-abc'), transport=transport)
+        client.fetch_illust_related(illust_id=201, seed_illust_ids=[202, 203])
+        call = transport.calls[0]
+        self.assertEqual(call['params']['illust_id'], 201)
+        self.assertEqual(call['params']['seed_illust_ids[]'], [202, 203])
 
 
 if __name__ == '__main__':

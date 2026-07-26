@@ -4,6 +4,12 @@ from dataclasses import dataclass
 from typing import Any, Mapping, Protocol
 
 from ..auth.coordinator import PixivTokenCoordinator
+from ..auth.models import (
+    DEFAULT_APP_OS,
+    DEFAULT_APP_OS_VERSION,
+    DEFAULT_APP_VERSION,
+    DEFAULT_USER_AGENT,
+)
 from ..auth.transport import HttpTransport, UrllibHttpTransport
 from .models import PagedResult, PixivIllustDetail, PixivIllustSummary, PixivUserDetail, PixivUserSummary
 
@@ -160,9 +166,15 @@ class PixivAppApiClient:
         )
 
     def _get_json(self, path: str, *, params: Mapping[str, object] | None = None) -> Mapping[str, Any]:
+        # Full app client identity: a bare Python-urllib UA on app-api is a
+        # strong risk-control fingerprint (OAuth path already sends these).
         headers = {
             'Authorization': f"Bearer {self.access_token_provider.get_access_token()}",
             'Accept-Language': self.accept_language,
+            'User-Agent': DEFAULT_USER_AGENT,
+            'App-OS': DEFAULT_APP_OS,
+            'App-OS-Version': DEFAULT_APP_OS_VERSION,
+            'App-Version': DEFAULT_APP_VERSION,
         }
         response = self.transport.send(method='GET', url=self.base_url + path, headers=headers, params=params)
         if response.status_code != 200:

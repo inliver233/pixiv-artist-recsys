@@ -12,11 +12,12 @@ class RequestPacePolicy:
     """Serialize and space out outbound HTTP calls for a single child token.
 
     True multi-thread concurrency on one Pixiv account tends to raise 429 risk.
-    Prefer higher sampling depth + steady pacing over parallel fan-out.
+    ~1 req/s matches the community-observed safe line for a single account now
+    that pooled keep-alive connections removed the accidental handshake brake.
     """
 
-    min_interval_s: float = 0.12
-    jitter_s: float = 0.04
+    min_interval_s: float = 1.0
+    jitter_s: float = 0.25
     enabled: bool = True
 
 

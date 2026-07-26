@@ -4,7 +4,7 @@ import os
 from dataclasses import asdict
 
 from ..auth.retry import RetryPolicy, RetryingHttpTransport
-from ..auth.transport import HttpTransport, UrllibHttpTransport
+from ..auth.transport import HttpTransport, PooledHttpTransport
 from ..utils.pacing import PacingHttpTransport, RequestPacePolicy, RequestPacer
 from .models import ProxyPolicy
 from .pool import ProxyPool
@@ -70,15 +70,18 @@ def _build_retry_policy(env: dict[str, str]) -> RetryPolicy | None:
 def _build_pace_policy(env: dict[str, str]) -> RequestPacePolicy | None:
     """Steady request spacing for one child token.
 
-    Default ~0.12s + small jitter (~7–8 req/s peak, usually lower with API latency).
+    Default ~1.0s + jitter (~1 req/s). Community-observed safe line for a single
+    Pixiv account is ~60-100 req/min; with keep-alive connections the old 0.12s
+    interval would actually reach ~8 req/s and risk the account. Speed comes from
+    fewer requests (cache/batch/skip-if-fresh) and more accounts, not a hotter pace.
     Disable with PIXIV_ARTIST_RECSYS_HTTP_MIN_INTERVAL_S=0.
     """
     if str(env.get('PIXIV_ARTIST_RECSYS_HTTP_PACE_ENABLED', '1')).strip().lower() in {'0', 'false', 'no', 'off'}:
         return None
-    min_interval = max(0.0, _env_float(env, 'PIXIV_ARTIST_RECSYS_HTTP_MIN_INTERVAL_S', 0.12))
+    min_interval = max(0.0, _env_float(env, 'PIXIV_ARTIST_RECSYS_HTTP_MIN_INTERVAL_S', 1.0))
     if min_interval <= 0:
         return None
-    jitter = max(0.0, _env_float(env, 'PIXIV_ARTIST_RECSYS_HTTP_PACE_JITTER_S', 0.04))
+    jitter = max(0.0, _env_float(env, 'PIXIV_ARTIST_RECSYS_HTTP_PACE_JITTER_S', 0.25))
     return RequestPacePolicy(min_interval_s=min_interval, jitter_s=jitter, enabled=True)
 
 
@@ -89,15 +92,17 @@ def build_http_transport_from_env(
     now_fn=None,
 ) -> tuple[HttpTransport, ProxyPool | None]:
     env = env or os.environ
-    base_transport = base_transport or UrllibHttpTransport()
-    # Order: base -> retry -> pace -> (optional) proxy failover
-    # Pace outermost of retry so each attempt is also spaced (safer on 429 storms).
-    retry_policy = _build_retry_policy(dict(env))
-    if retry_policy is not None:
-        base_transport = RetryingHttpTransport(base_transport=base_transport, policy=retry_policy)
+    # Keep-alive pooled transport: no per-request TCP+TLS handshake (P-1).
+    base_transport = base_transport or PooledHttpTransport()
+    # Order: base -> pace -> retry -> (optional) proxy failover
+    # Pacing inside retry so EVERY attempt is spaced (Pacing outside would only
+    # wait once before the whole retry sequence — safer on 429 storms this way).
     pace_policy = _build_pace_policy(dict(env))
     if pace_policy is not None:
         base_transport = PacingHttpTransport(base_transport=base_transport, pacer=RequestPacer(policy=pace_policy))
+    retry_policy = _build_retry_policy(dict(env))
+    if retry_policy is not None:
+        base_transport = RetryingHttpTransport(base_transport=base_transport, policy=retry_policy)
     proxy_pool = build_proxy_pool_from_env(env, now_fn=now_fn)
     if proxy_pool is None or not proxy_pool.has_proxies():
         return base_transport, None
