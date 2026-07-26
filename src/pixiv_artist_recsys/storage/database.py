@@ -41,10 +41,18 @@ def _migrate_v2(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE seed_users ADD COLUMN last_following_sync_epoch INTEGER NOT NULL DEFAULT 0")
 
 
+def _migrate_v3(conn: sqlite3.Connection) -> None:
+    """Thumbnail URL for the local HTML report (empty for legacy rows)."""
+    illust_cols = {str(row[1]) for row in conn.execute("PRAGMA table_info(illusts)").fetchall()}
+    if 'image_url' not in illust_cols:
+        conn.execute("ALTER TABLE illusts ADD COLUMN image_url TEXT NOT NULL DEFAULT ''")
+
+
 # Ordered schema migrations tracked via PRAGMA user_version; each runs at most once.
 MIGRATIONS: tuple[tuple[int, Callable[[sqlite3.Connection], None]], ...] = (
     (1, _migrate_v1),
     (2, _migrate_v2),
+    (3, _migrate_v3),
 )
 
 

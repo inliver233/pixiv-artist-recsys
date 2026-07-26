@@ -150,6 +150,19 @@ class ApplicationFacade:
             payload['output_path'] = str(output_path)
         return payload
 
+    def export_run_html_payload(self, *, run_id: str, output: str | None = None) -> dict[str, Any]:
+        """Render a stored run as a browsable single-file HTML report."""
+        from ..report import HtmlReportBuilder
+
+        api = self.runtime.settings.api
+        builder = HtmlReportBuilder(
+            repository=self.runtime.repository,
+            api_base=f'http://{api.host}:{api.port}',
+        )
+        if output is None:
+            output = str(self.runtime.settings.paths.runtime_dir / 'reports' / f'{run_id}.html')
+        return builder.write_for_run(run_id=run_id, output_path=output)
+
     def import_following_file_payload(
         self,
         *,

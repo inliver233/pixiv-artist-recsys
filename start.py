@@ -749,6 +749,18 @@ def cmd_run(args: argparse.Namespace) -> int:
     # strip nothing sensitive — payload should only have masked token_refs
     out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding='utf-8')
 
+    html_path = ''
+    run_id = str(payload.get('run_id') or '')
+    if run_id:
+        try:
+            html_result = facade.export_run_html_payload(
+                run_id=run_id,
+                output=str(out_dir / f'full-{run_id}.html'),
+            )
+            html_path = str(html_result.get('output_path') or '')
+        except Exception as exc:  # noqa: BLE001 - report failure must not fail the run
+            print(f'HTML 报告生成失败: {type(exc).__name__}: {exc}', file=sys.stderr)
+
     summary = {
         'run_id': payload.get('run_id'),
         'seed_user_id': payload.get('seed_user_id'),
@@ -757,10 +769,13 @@ def cmd_run(args: argparse.Namespace) -> int:
         'token_roles': payload.get('token_roles'),
         'stats': payload.get('stats'),
         'output_path': str(out_path),
+        'html_report_path': html_path,
         'preset': preset_name,
     }
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     print(f"完整结果已写入: {out_path}")
+    if html_path:
+        print(f"HTML 报告: {html_path}")
     return 0
 
 

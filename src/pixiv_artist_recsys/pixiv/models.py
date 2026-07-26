@@ -44,6 +44,8 @@ class PixivIllustSummary:
     # API "type" field: illust | manga | ugoira
     illust_type: str = ""
     page_count: int = 1
+    # square_medium/medium thumbnail from image_urls (for local HTML report cards).
+    image_url: str = ""
 
 
 @dataclass(slots=True)

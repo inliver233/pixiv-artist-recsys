@@ -360,6 +360,10 @@ def build_parser() -> argparse.ArgumentParser:
         default=settings.recommendation.min_relative_bookmark_ratio,
     )
 
+    export_html = sub.add_parser('export-run-html', help='Render a stored run as a browsable HTML report')
+    export_html.add_argument('--run-id', required=True)
+    export_html.add_argument('--output', help='Output path (default: runtime/reports/<run_id>.html)')
+
     evaluate = sub.add_parser(
         'evaluate-offline',
         help='Leave-one-out holdout evaluation: Recall@K / NDCG@K over local data (no API calls)',
@@ -1184,6 +1188,9 @@ def main(argv: list[str] | None = None) -> int:
                 max_ai_fraction=getattr(args, 'max_ai_fraction', None),
                 min_relative_bookmark_ratio=getattr(args, 'min_relative_bookmark_ratio', None),
             )
+        if args.command == 'export-run-html':
+            _print_payload(_build_facade().export_run_html_payload(run_id=args.run_id, output=args.output))
+            return 0
         if args.command == 'evaluate-offline':
             return cmd_evaluate_offline(
                 seed_user_id=args.seed_user_id,

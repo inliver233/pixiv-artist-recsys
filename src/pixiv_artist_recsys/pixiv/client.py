@@ -220,6 +220,7 @@ class PixivAppApiClient:
                 tags.append(tag['name'])
             elif isinstance(tag, str) and tag.strip():
                 tags.append(tag)
+        image_urls = raw.get('image_urls') if isinstance(raw.get('image_urls'), dict) else {}
         return PixivIllustSummary(
             illust_id=PixivAppApiClient._as_int(raw.get('id')),
             user_id=PixivAppApiClient._as_int(user.get('id')),
@@ -233,6 +234,7 @@ class PixivAppApiClient:
             x_restrict=PixivAppApiClient._as_int(raw.get('x_restrict')),
             illust_type=str(raw.get('type') or '').strip().lower(),
             page_count=max(1, PixivAppApiClient._as_int(raw.get('page_count'), fallback=1)),
+            image_url=str(image_urls.get('square_medium') or image_urls.get('medium') or ''),
         )
 
     @staticmethod

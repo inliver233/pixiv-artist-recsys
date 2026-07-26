@@ -325,6 +325,7 @@ class ArtistIllustHydrationService:
                 x_restrict=summary.x_restrict,
                 illust_type=summary.illust_type or '',
                 page_count=max(1, int(summary.page_count or 1)),
+                image_url=str(getattr(summary, 'image_url', '') or ''),
             )
         )
         self.repository.replace_illust_tags(illust_id=summary.illust_id, tags=list(summary.tags or []))

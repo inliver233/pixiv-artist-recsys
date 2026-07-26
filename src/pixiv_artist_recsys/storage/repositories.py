@@ -235,9 +235,9 @@ class RecommendationRepository:
                 """
                 INSERT INTO illusts (
                     illust_id, user_id, title, create_date, total_bookmarks, total_view, total_comments,
-                    ai_type, x_restrict, illust_type, page_count, fetched_at_epoch
+                    ai_type, x_restrict, illust_type, page_count, fetched_at_epoch, image_url
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(illust_id) DO UPDATE SET
                     user_id=excluded.user_id,
                     title=excluded.title,
@@ -249,7 +249,11 @@ class RecommendationRepository:
                     x_restrict=excluded.x_restrict,
                     illust_type=excluded.illust_type,
                     page_count=excluded.page_count,
-                    fetched_at_epoch=excluded.fetched_at_epoch
+                    fetched_at_epoch=excluded.fetched_at_epoch,
+                    image_url=CASE
+                        WHEN excluded.image_url != '' THEN excluded.image_url
+                        ELSE illusts.image_url
+                    END
                 """,
                 (
                     illust.illust_id,
@@ -264,6 +268,7 @@ class RecommendationRepository:
                     illust.illust_type or '',
                     max(1, int(illust.page_count or 1)),
                     int(time.time()),
+                    str(getattr(illust, 'image_url', '') or ''),
                 ),
             )
 
@@ -364,7 +369,7 @@ class RecommendationRepository:
             rows = conn.execute(
                 """
                 SELECT illust_id, user_id, title, create_date, total_bookmarks, total_view, total_comments,
-                       ai_type, x_restrict, illust_type, page_count
+                       ai_type, x_restrict, illust_type, page_count, image_url
                 FROM illusts
                 WHERE user_id = ?
                 ORDER BY total_bookmarks DESC, illust_id DESC
@@ -384,6 +389,7 @@ class RecommendationRepository:
                 x_restrict=int(r['x_restrict']),
                 illust_type=str(r['illust_type'] or ''),
                 page_count=max(1, int(r['page_count'] or 1)),
+                image_url=str(r['image_url'] or ''),
             )
             for r in rows
         ]
@@ -538,7 +544,7 @@ class RecommendationRepository:
                 rows = conn.execute(
                     f"""
                     SELECT illust_id, user_id, title, create_date, total_bookmarks, total_view, total_comments,
-                           ai_type, x_restrict, illust_type, page_count
+                           ai_type, x_restrict, illust_type, page_count, image_url
                     FROM illusts
                     WHERE user_id IN ({placeholders})
                     ORDER BY user_id, total_bookmarks DESC, illust_id DESC
@@ -559,6 +565,7 @@ class RecommendationRepository:
                             x_restrict=int(r['x_restrict']),
                             illust_type=str(r['illust_type'] or ''),
                             page_count=max(1, int(r['page_count'] or 1)),
+                            image_url=str(r['image_url'] or ''),
                         )
                     )
         return result

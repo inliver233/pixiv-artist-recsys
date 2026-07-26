@@ -60,6 +60,7 @@ SCHEMA_STATEMENTS = [
         illust_type TEXT NOT NULL DEFAULT '',
         page_count INTEGER NOT NULL DEFAULT 1,
         fetched_at_epoch INTEGER NOT NULL DEFAULT 0,
+        image_url TEXT NOT NULL DEFAULT '',
         FOREIGN KEY(user_id) REFERENCES artists(user_id)
     )
     """,

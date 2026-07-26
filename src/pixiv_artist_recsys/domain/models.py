@@ -35,6 +35,8 @@ class Illust:
     # Pixiv type: "illust" | "manga" | "ugoira" (empty when unknown / legacy rows).
     illust_type: str = ""
     page_count: int = 1
+    # i.pximg.net square/medium thumbnail (empty for legacy rows).
+    image_url: str = ""
 
 
 @dataclass(slots=True)
