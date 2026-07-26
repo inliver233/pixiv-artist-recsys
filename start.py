@@ -996,6 +996,11 @@ def cmd_campaign(args: argparse.Namespace) -> int:
                 sample_salt=step['sample_salt'],
                 explore_ratio=float(step['explore_ratio'] or preset.get('explore_ratio', 0.30)),
                 skip_sync_if_fresh=True,
+                # Heavy-once + light-rounds: round 0 does sync+recall; later
+                # rounds reuse the accumulated candidate store and only
+                # re-sample hydration (salt) + re-rank. 4-round campaign cost
+                # drops from ~4x to ~1.2-1.5x of a single round.
+                light_round=int(step['round_index']) > 0,
                 on_progress=tui,
             )
         except Exception as exc:  # noqa: BLE001

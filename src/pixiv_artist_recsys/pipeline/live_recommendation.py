@@ -59,6 +59,10 @@ class LiveRecommendationRequest:
     # Stop paging the following list after N consecutive already-known ids (0 = full sync).
     # Newest-first ordering makes anything past the first known run pure re-sync tax.
     following_incremental_stop_after: int = 60
+    # Light round (campaign rounds 1..N): reuse the accumulated candidate store —
+    # skip following sync and candidate building, only re-sample hydration
+    # (salt-rotated) and re-rank. Heavy work happens once in round 0.
+    light_round: bool = False
     persist_run: bool = True
     mode: str = 'live-heuristic'
 
@@ -125,17 +129,23 @@ class LiveRecommendationPipeline:
         )
 
         following_token_ref = request.following_refresh_token_ref or request.refresh_token_ref
-        emit(on_progress, stage='pipeline', event='info', message='stage 1/6 following_sync (mother preferred)')
-        following_result = self.following_sync_service.sync_following(
-            seed_user_id=request.seed_user_id,
-            refresh_token_ref=following_token_ref,
-            restrict=request.restrict,
-            allow_ai=request.allow_ai,
-            allow_r18=request.allow_r18,
-            skip_if_fresh_s=request.skip_sync_if_fresh_s or None,
-            incremental_stop_after=request.following_incremental_stop_after,
-            on_progress=on_progress,
-        )
+        if request.light_round:
+            emit(on_progress, stage='pipeline', event='info', message='stage 1/6 following_sync (light round: skipped)')
+            following_result = FollowingSyncResult(
+                seed_user_id=request.seed_user_id, synced_count=0, pages_fetched=0, skipped_fresh=True
+            )
+        else:
+            emit(on_progress, stage='pipeline', event='info', message='stage 1/6 following_sync (mother preferred)')
+            following_result = self.following_sync_service.sync_following(
+                seed_user_id=request.seed_user_id,
+                refresh_token_ref=following_token_ref,
+                restrict=request.restrict,
+                allow_ai=request.allow_ai,
+                allow_r18=request.allow_r18,
+                skip_if_fresh_s=request.skip_sync_if_fresh_s or None,
+                incremental_stop_after=request.following_incremental_stop_after,
+                on_progress=on_progress,
+            )
 
         emit(on_progress, stage='pipeline', event='info', message='stage 2/6 hydrate_followed')
         followed_hydration_result = self.hydration_service.hydrate_followed_artists(
@@ -173,28 +183,37 @@ class LiveRecommendationPipeline:
             top_tag_count=len(profile_summary.top_tags),
         )
 
-        emit(on_progress, stage='pipeline', event='info', message='stage 4/6 build_candidates')
-        candidate_result = self.candidate_service.build_candidates(
-            seed_user_id=request.seed_user_id,
-            max_related_per_artist=request.max_related_per_artist,
-            max_related_per_illust=request.max_related_per_illust,
-            max_illusts_for_related=request.max_illusts_for_related,
-            max_seed_artists=request.max_seed_artists,
-            seed_sample=request.seed_sample,
-            enable_user_recommended=request.enable_user_recommended,
-            max_user_recommended=request.max_user_recommended,
-            enable_tag_search=request.enable_tag_search,
-            max_tag_search_tags=request.max_tag_search_tags,
-            max_tag_search_illusts=request.max_tag_search_illusts,
-            enable_seed_following=request.enable_seed_following,
-            max_seed_following_artists=request.max_seed_following_artists,
-            max_following_per_seed_artist=request.max_following_per_seed_artist,
-            seed_following_sample=request.seed_following_sample,
-            merge_candidates=request.merge_candidates,
-            sample_salt=request.sample_salt,
-            explore_ratio=request.explore_ratio,
-            on_progress=on_progress,
-        )
+        if request.light_round:
+            emit(on_progress, stage='pipeline', event='info', message='stage 4/6 build_candidates (light round: reuse store)')
+            stored = self.repository.fetch_artist_candidates(seed_user_id=request.seed_user_id)
+            candidate_result = CandidateArtistResult(
+                seed_user_id=request.seed_user_id,
+                candidate_count=len({row[0] for row in stored}),
+                evidence_count=len(stored),
+            )
+        else:
+            emit(on_progress, stage='pipeline', event='info', message='stage 4/6 build_candidates')
+            candidate_result = self.candidate_service.build_candidates(
+                seed_user_id=request.seed_user_id,
+                max_related_per_artist=request.max_related_per_artist,
+                max_related_per_illust=request.max_related_per_illust,
+                max_illusts_for_related=request.max_illusts_for_related,
+                max_seed_artists=request.max_seed_artists,
+                seed_sample=request.seed_sample,
+                enable_user_recommended=request.enable_user_recommended,
+                max_user_recommended=request.max_user_recommended,
+                enable_tag_search=request.enable_tag_search,
+                max_tag_search_tags=request.max_tag_search_tags,
+                max_tag_search_illusts=request.max_tag_search_illusts,
+                enable_seed_following=request.enable_seed_following,
+                max_seed_following_artists=request.max_seed_following_artists,
+                max_following_per_seed_artist=request.max_following_per_seed_artist,
+                seed_following_sample=request.seed_following_sample,
+                merge_candidates=request.merge_candidates,
+                sample_salt=request.sample_salt,
+                explore_ratio=request.explore_ratio,
+                on_progress=on_progress,
+            )
 
         emit(on_progress, stage='pipeline', event='info', message='stage 5/6 hydrate_candidates')
         candidate_hydration_result = self.hydration_service.hydrate_candidate_artists(

@@ -165,4 +165,21 @@ SCHEMA_STATEMENTS = [
         PRIMARY KEY(seed_user_id, artist_user_id)
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS jobs (
+        job_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        kind TEXT NOT NULL,
+        payload TEXT NOT NULL DEFAULT '{}',
+        status TEXT NOT NULL DEFAULT 'pending',
+        attempts INTEGER NOT NULL DEFAULT 0,
+        max_attempts INTEGER NOT NULL DEFAULT 3,
+        claimed_by TEXT NOT NULL DEFAULT '',
+        claimed_at_epoch INTEGER NOT NULL DEFAULT 0,
+        created_at_epoch INTEGER NOT NULL DEFAULT 0,
+        updated_at_epoch INTEGER NOT NULL DEFAULT 0,
+        result TEXT NOT NULL DEFAULT '',
+        error TEXT NOT NULL DEFAULT ''
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status, job_id)",
 ]

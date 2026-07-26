@@ -126,6 +126,52 @@ class LivePipelineTests(unittest.TestCase):
             self.assertEqual(audit['ranked']['artist_user_ids'], [2001])
             self.assertGreaterEqual(repo.count_rows('illusts'), 8)
 
+    def test_light_round_skips_sync_and_candidate_building(self) -> None:
+        class CountingClient(FakeLivePixivClient):
+            def __init__(self) -> None:
+                self.following_calls = 0
+                self.related_calls = 0
+
+            def fetch_following_users(self, **kwargs):
+                self.following_calls += 1
+                return super().fetch_following_users(**kwargs)
+
+            def fetch_user_related(self, **kwargs):
+                self.related_calls += 1
+                return super().fetch_user_related(**kwargs)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = RecommendationRepository(SQLiteDatabase(Path(tmpdir) / 'live-light.sqlite3'))
+            repo.initialize()
+            client = CountingClient()
+            pipeline = LiveRecommendationPipeline(repository=repo, pixiv_client=client)
+            base_kwargs = dict(
+                seed_user_id=7,
+                refresh_token_ref='masked:token',
+                followed_artist_limit=2,
+                candidate_artist_limit=2,
+                max_related_per_artist=2,
+                max_related_per_illust=2,
+                max_results=5,
+                min_total_bookmarks=30,
+                min_score=0.1,
+                merge_candidates=True,
+            )
+            # Heavy round 0: full sync + recall.
+            heavy = pipeline.run(LiveRecommendationRequest(**base_kwargs))
+            self.assertGreater(client.following_calls, 0)
+            self.assertGreater(client.related_calls, 0)
+            heavy_candidates = heavy.candidate_result.candidate_count
+
+            # Light round: no sync, no candidate building — store reused.
+            calls_before = (client.following_calls, client.related_calls)
+            light = pipeline.run(LiveRecommendationRequest(**base_kwargs, light_round=True))
+            self.assertEqual((client.following_calls, client.related_calls), calls_before)
+            self.assertTrue(light.following_result.skipped_fresh)
+            self.assertEqual(light.candidate_result.candidate_count, heavy_candidates)
+            # Ranking still produces the same store-backed results.
+            self.assertEqual([item.artist.user_id for item in light.run.items], [2001])
+
     def test_live_pipeline_respects_max_seed_and_candidate_caps(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             repo = RecommendationRepository(SQLiteDatabase(Path(tmpdir) / 'live-pipeline-caps.sqlite3'))

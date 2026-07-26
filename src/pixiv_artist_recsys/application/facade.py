@@ -549,6 +549,7 @@ class ApplicationFacade:
         sample_salt: int | str | None = None,
         explore_ratio: float | None = None,
         skip_sync_if_fresh: bool = False,
+        light_round: bool = False,
         stop_words: list[str] | set[str] | None = None,
         on_progress: ProgressCallback | None = None,
     ) -> dict[str, Any]:
@@ -632,6 +633,7 @@ class ApplicationFacade:
                 sample_salt=sample_salt,
                 explore_ratio=0.25 if explore_ratio is None else float(explore_ratio),
                 skip_sync_if_fresh_s=24 * 3600.0 if skip_sync_if_fresh else 0.0,
+                light_round=bool(light_round),
             ),
             on_progress=on_progress,
         )
