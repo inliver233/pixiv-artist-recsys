@@ -1,6 +1,14 @@
 # Changelog
 
-## Unreleased (dev) — 2026-07-26 起，S0+Q0 性能与质量基建
+## Unreleased (dev) — 阶段二：任务队列、图召回、免费粗筛、参数治理
+
+- SQLite jobs 任务队列（pending→claimed→done/failed 原子认领 + 超时回收）；campaign 改 heavy-once + light-rounds（4 轮成本 ~4x → ~1.2-1.5x）
+- 图召回（零 API 成本）：artist_follow_edges 表记录观察到的关注边；Personalized PageRank（纯 dict 幂迭代 + multi-hit 过滤）与 co-follow Jaccard 作为 graph_ppr / graph_jaccard 证据源；水合预算按召回源配额分配
+- **user_previews 免费粗筛**：list API 每个用户附带的 ~3 张完整作品（tags/收藏数）入库——following 同步给全部关注免费作品、候选构建给每个候选自带证据，等于零请求的两阶段水合 Stage 1
+- `import-downloader-stats`（可选命令）：一次性只读拷贝 pixiv-downloader 的收藏/浏览统计；管线不依赖挂载，已有数据永不被覆盖
+- 参数治理：`FullRecommendParams` 单点定义全部 full-recommend 参数；jobs/API 共用同一解析（API 层曾漂移缺失 ~10 个旋钮，现自动对齐）
+
+## 2026-07-26，S0+Q0 性能与质量基建
 
 调查报告《未来升级方向.md》阶段一落地：暖库轮次成本数量级下降 + 排序信号升级 + 反馈闭环产品层。
 
